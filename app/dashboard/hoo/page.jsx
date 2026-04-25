@@ -140,7 +140,7 @@ export default function HOODashboard() {
         </div>
         <div className="flex items-center gap-4">
           <span className="text-sm">{profile?.full_name}</span>
-          <button onClick={() => router.push('/dashboard/hoo/history')} className="bg-orange-400 text-white px-3 py-1 rounded text-sm font-medium hover:bg-orange-300">📋 History</button><button onClick={() => router.push('/dashboard/hoo/timesheet-alert')} className="bg-orange-400 text-white px-3 py-1 rounded text-sm font-medium hover:bg-orange-300">⏰ Alert</button><button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="bg-white text-orange-500 px-3 py-1 rounded text-sm font-medium">Log Keluar</button>
+          <button onClick={() => router.push('/dashboard/hoo/history')} className="bg-orange-400 text-white px-3 py-1 rounded text-sm font-medium hover:bg-orange-300">📋 History</button><button onClick={() => router.push('/dashboard/hoo/timesheet-alert')} className="bg-orange-400 text-white px-3 py-1 rounded text-sm font-medium hover:bg-orange-300">⏰ Alert</button><button onClick={() => router.push('/dashboard/hoo/osm')} className="bg-purple-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-purple-400">📋 OSM</button><button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="bg-white text-orange-500 px-3 py-1 rounded text-sm font-medium">Log Keluar</button>
         </div>
       </nav>
 
