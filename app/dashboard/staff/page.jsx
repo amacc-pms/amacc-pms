@@ -39,6 +39,16 @@ export default function StaffDashboard() {
     const now = new Date()
     const hour = now.getHours()
     if (hour < 10) return
+    
+    // Check ada jobs aktif tak — kalau takde, skip block
+    const { data: activeJobs } = await supabase
+      .from('jobs')
+      .select('id')
+      .or(`assigned_exec.eq.${prof.id},assigned_reviewer.eq.${prof.id},assigned_de.eq.${prof.id}`)
+      .not('status', 'eq', 'completed')
+      .limit(1)
+    
+    if (!activeJobs || activeJobs.length === 0) return // Staff baru, skip block
     const { data: yesterdayLog } = await supabase
       .from('timesheets')
       .select('id')
@@ -124,7 +134,12 @@ export default function StaffDashboard() {
     })
 
     const unearnedThisMonth = dailyRate * missedDays
-    setUnearnedRevenue({ thisMonth: unearnedThisMonth, allTime: unearnedThisMonth, missedDays })
+    // Kalau tiada jobs aktif, unearned = 0
+    setUnearnedRevenue({ 
+      thisMonth: activeJobs && activeJobs.length > 0 ? unearnedThisMonth : 0, 
+      allTime: activeJobs && activeJobs.length > 0 ? unearnedThisMonth : 0, 
+      missedDays: activeJobs && activeJobs.length > 0 ? missedDays : 0 
+    })
   }
 
   async function saveTimesheets() {
@@ -167,7 +182,7 @@ export default function StaffDashboard() {
             📝 Log Timesheet Sekarang
           </button>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="w-full bg-gray-100 text-gray-600 py-2 rounded-lg text-sm">
-            Log Keluar
+            <button onClick={() => router.push('/dashboard/staff/osm')} className="bg-purple-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-purple-400">📋 OSM</button>Log Keluar
           </button>
         </div>
       </div>
