@@ -7,458 +7,299 @@ import { useRouter } from 'next/navigation'
 export default function StaffDashboard() {
   const [profile, setProfile] = useState(null)
   const [jobs, setJobs] = useState([])
-  const [timesheets, setTimesheets] = useState([])
-  const [allProfiles, setAllProfiles] = useState({})
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState('')
+  const [isBlocked, setIsBlocked] = useState(false)
+  const [missedDate, setMissedDate] = useState('')
+  const [todayLogs, setTodayLogs] = useState({})
+  const [notes, setNotes] = useState({})
   const [saving, setSaving] = useState(false)
-  const [todayHours, setTodayHours] = useState({})
-  const [todayNotes, setTodayNotes] = useState({})
-  const [progress, setProgress] = useState({})
-  const [statusMap, setStatusMap] = useState({})
-  const [jobStatusMap, setJobStatusMap] = useState({})
-  const [activeTab, setActiveTab] = useState('active')
+  const [message, setMessage] = useState('')
+  const [activeTab, setActiveTab] = useState('aktif')
+  const [unearnedRevenue, setUnearnedRevenue] = useState({ thisMonth: 0, allTime: 0, missedDays: 0 })
   const router = useRouter()
 
   const today = new Date().toISOString().split('T')[0]
-
-  const jobStatusOptions = {
-    general: [
-      'In Progress (10% - 70%)',
-      'Pending Client Info',
-      'Pending LHDN',
-      'Pending Auditor',
-      'Ready for Collection (80%)',
-      'Completed (100%)'
-    ],
-    tax: [
-      '10% - Opening KYC & Documentation',
-      '30% - Preparing Draft/Job',
-      '60% - 1st Draft/Report Ready',
-      '70% - Internal Review',
-      '80% - Client Approval',
-      '90% - Finalise & KYC Closing',
-      '100% - Completed'
-    ],
-    coaching: [
-      'Not Started - Coaching',
-      'In Progress - Coaching',
-      'In Progress - Review',
-      'Completed - Review',
-      'Completed - Coaching'
-    ]
-  }
-
-  const getProgressFromStatus = (status) => {
-    const map = {
-      '10% - Opening KYC & Documentation': 10,
-      '30% - Preparing Draft/Job': 30,
-      '60% - 1st Draft/Report Ready': 60,
-      '70% - Internal Review': 70,
-      '80% - Client Approval': 80,
-      '90% - Finalise & KYC Closing': 90,
-      '100% - Completed': 100,
-      'Ready for Collection (80%)': 80,
-      'Completed (100%)': 100,
-      'Completed - Coaching': 100,
-      'Completed - Review': 90
-    }
-    return map[status] || null
-  }
-
-  const getStatusType = (serviceType) => {
-    if (!serviceType) return 'general'
-    const taxTypes = ['Form C','Form B','Form E','Form TF','Form N','Form Q','Form BE','Tax Audit','Tax MA','CP204','Tax Estimation','Tax Investigation','SST Audit']
-    const coachingTypes = ['Coaching & Training','Advisory services','SPC','SST Registration','Yayasan Incorporation']
-    if (taxTypes.includes(serviceType)) return 'tax'
-    if (coachingTypes.includes(serviceType)) return 'coaching'
-    return 'general'
-  }
-
-  const getPendingAlert = (job) => {
-    if (!job.pending_since) return null
-    if (!['Pending Client Info','Pending LHDN','Pending Auditor'].includes(job.job_status)) return null
-    const days = Math.floor((new Date() - new Date(job.pending_since)) / (1000 * 60 * 60 * 24))
-    if (job.job_status === 'Pending Client Info') {
-      if (days >= 30) return { color: 'red', label: `${days} hari — KIV!` }
-      if (days >= 14) return { color: 'red', label: `${days} hari` }
-      if (days >= 7) return { color: 'orange', label: `${days} hari` }
-      if (days >= 3) return { color: 'yellow', label: `${days} hari` }
-    }
-    if (job.job_status === 'Pending Auditor') {
-      if (days >= 60) return { color: 'red', label: `${days} hari — Escalate!` }
-      if (days >= 30) return { color: 'orange', label: `${days} hari` }
-    }
-    if (job.job_status === 'Pending LHDN') {
-      return { color: days >= 7 ? 'orange' : 'yellow', label: `${days} hari` }
-    }
-    return null
-  }
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
   useEffect(() => { checkAuth() }, [])
 
-  const checkAuth = async () => {
+  async function checkAuth() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/'); return }
-    const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-    if (!p || p.role !== 'staff') { router.push('/'); return }
-    setProfile(p)
-    fetchProfiles()
-    fetchJobs(p.id)
-    fetchTimesheets(p.id)
+    const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+    if (!prof) { router.push('/'); return }
+    if (!['staff', 'hoo', 'ceo'].includes(prof.role)) { router.push('/'); return }
+    setProfile(prof)
+    await checkHardBlock(prof)
+    await loadJobs(prof.id)
+    await calculateUnearned(prof.id)
   }
 
-  const fetchProfiles = async () => {
-    const { data } = await supabase.from('profiles').select('id, full_name')
-    if (data) {
-      const map = {}
-      data.forEach(x => { map[x.id] = x.full_name })
-      setAllProfiles(map)
+  async function checkHardBlock(prof) {
+    const now = new Date()
+    const hour = now.getHours()
+    if (hour < 10) return
+    const { data: yesterdayLog } = await supabase
+      .from('timesheets')
+      .select('id')
+      .eq('staff_id', prof.id)
+      .eq('log_date', yesterday)
+      .limit(1)
+    if (!yesterdayLog || yesterdayLog.length === 0) {
+      await supabase.from('profiles').update({
+        is_blocked: true,
+        blocked_since: new Date().toISOString()
+      }).eq('id', prof.id)
+      setIsBlocked(true)
+      setMissedDate(yesterday)
     }
   }
 
-  const fetchJobs = async (staffId) => {
+  async function loadJobs(staffId) {
     const { data } = await supabase
       .from('jobs')
-      .select('*, clients(company_name)')
+      .select(`*, clients(company_name)`)
       .or(`assigned_exec.eq.${staffId},assigned_reviewer.eq.${staffId},assigned_de.eq.${staffId}`)
-      .order('due_date', { ascending: true })
-
-    if (data) {
-      setJobs(data)
-      const p = {}, s = {}, js = {}
-      data.forEach(j => {
-        p[j.id] = j.completion_percentage ?? 0
-        s[j.id] = j.status ?? 'in_progress'
-        js[j.id] = j.job_status ?? 'In Progress (10% - 70%)'
-      })
-      setProgress(p)
-      setStatusMap(s)
-      setJobStatusMap(js)
-    }
-    setLoading(false)
-  }
-
-  const fetchTimesheets = async (staffId) => {
-    const { data } = await supabase
+      .not('status', 'eq', 'completed')
+      .order('due_date')
+    setJobs(data || [])
+    const { data: logs } = await supabase
       .from('timesheets')
       .select('*')
       .eq('staff_id', staffId)
-      .order('log_date', { ascending: false })
-    if (data) setTimesheets(data)
+      .eq('log_date', today)
+    const logsMap = {}
+    const notesMap = {}
+    logs?.forEach(l => {
+      logsMap[l.job_id] = l.hours_logged
+      notesMap[l.job_id] = l.note || ''
+    })
+    setTodayLogs(logsMap)
+    setNotes(notesMap)
+    setLoading(false)
   }
 
-  const handleSaveProgress = async (jobId) => {
-    setSaving(true)
-    const newJobStatus = jobStatusMap[jobId]
-    const autoProgress = getProgressFromStatus(newJobStatus)
-    const finalProgress = autoProgress !== null ? autoProgress : progress[jobId]
+  async function calculateUnearned(staffId) {
+    const now = new Date()
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
 
-    // Handle pending_since
-    const pendingStatuses = ['Pending Client Info', 'Pending LHDN', 'Pending Auditor']
-    const job = jobs.find(j => j.id === jobId)
-    const wasPending = pendingStatuses.includes(job?.job_status)
-    const isPending = pendingStatuses.includes(newJobStatus)
-    const pendingSince = isPending && !wasPending ? new Date().toISOString() : (isPending ? job?.pending_since : null)
-
-    const { error } = await supabase.from('jobs').update({
-      completion_percentage: finalProgress,
-      status: finalProgress >= 100 ? 'completed' : 'in_progress',
-      job_status: newJobStatus,
-      pending_since: pendingSince
-    }).eq('id', jobId)
-
-    if (error) setMessage('❌ Error: ' + error.message)
-    else {
-      setProgress(prev => ({ ...prev, [jobId]: finalProgress }))
-      setMessage('✅ Progress berjaya dikemaskini!')
-      setTimeout(() => setMessage(''), 3000)
-      fetchJobs(profile.id)
+    // Kira hari missed (exclude Saturday & Sunday)
+    const { data: logs } = await supabase
+      .from('timesheets')
+      .select('log_date')
+      .eq('staff_id', staffId)
+      .gte('log_date', firstOfMonth)
+    const loggedDates = new Set(logs?.map(l => l.log_date) || [])
+    let missedDays = 0
+    let d = new Date(firstOfMonth)
+    const yesterdayDate = new Date(yesterday)
+    while (d <= yesterdayDate) {
+      const dateStr = d.toISOString().split('T')[0]
+      const day = d.getDay()
+      if (day !== 0 && day !== 6 && !loggedDates.has(dateStr)) missedDays++
+      d.setDate(d.getDate() + 1)
     }
-    setSaving(false)
-  }
 
-  const handleSaveHours = async (jobId) => {
-    const hours = parseFloat(todayHours[jobId] || 0)
-    const note = todayNotes[jobId] || ''
-    if (!note.trim()) { setMessage('❌ Sila isi nota kerja!'); setTimeout(() => setMessage(''), 3000); return }
-    if (hours <= 0) { setMessage('❌ Sila isi jam kerja!'); setTimeout(() => setMessage(''), 3000); return }
+    // Kira daily rate berdasarkan invoice value jobs aktif
+    const { data: activeJobs } = await supabase
+      .from('jobs')
+      .select('id, invoice_value, assigned_exec, assigned_reviewer, assigned_de')
+      .or(`assigned_exec.eq.${staffId},assigned_reviewer.eq.${staffId},assigned_de.eq.${staffId}`)
+      .not('status', 'eq', 'completed')
 
-    setSaving(true)
-    const { error } = await supabase.from('timesheets').insert({
-      job_id: jobId, staff_id: profile.id, log_date: today, hours_logged: hours, note: note
+    let dailyRate = 0
+    activeJobs?.forEach(job => {
+      const invoiceVal = Number(job.invoice_value || 0)
+      const totalJobDays = 30
+      if (job.assigned_exec === staffId) {
+        const percent = job.assigned_de ? 0.75 : 0.80
+        dailyRate += (invoiceVal * percent) / totalJobDays
+      }
+      if (job.assigned_reviewer === staffId && job.assigned_reviewer !== job.assigned_exec) {
+        dailyRate += (invoiceVal * 0.20) / totalJobDays
+      }
+      if (job.assigned_de === staffId) {
+        dailyRate += (invoiceVal * 0.05) / totalJobDays
+      }
     })
 
-    if (error) setMessage('❌ Error: ' + error.message)
-    else {
-      setMessage('✅ Log kerja berjaya disimpan!')
-      setTodayHours(prev => ({ ...prev, [jobId]: '' }))
-      setTodayNotes(prev => ({ ...prev, [jobId]: '' }))
-      fetchTimesheets(profile.id)
-      setTimeout(() => setMessage(''), 3000)
+    const unearnedThisMonth = dailyRate * missedDays
+    setUnearnedRevenue({ thisMonth: unearnedThisMonth, allTime: unearnedThisMonth, missedDays })
+  }
+
+  async function saveTimesheets() {
+    if (!profile) return
+    setSaving(true)
+    for (const job of jobs.filter(j => !['completed','kiv'].includes(j.status))) {
+      await supabase.from('timesheets').upsert({
+        staff_id: profile.id,
+        job_id: job.id,
+        log_date: today,
+        hours_logged: Number(todayLogs[job.id] || 0),
+        note: notes[job.id] || '',
+        status: job.status
+      }, { onConflict: 'staff_id,job_id,log_date' })
     }
+    if (isBlocked) {
+      await supabase.from('profiles').update({ is_blocked: false, unblocked_at: new Date().toISOString() }).eq('id', profile.id)
+      setIsBlocked(false)
+    }
+    setMessage('✅ Timesheet berjaya disimpan!')
+    setTimeout(() => setMessage(''), 3000)
     setSaving(false)
   }
 
-  const getRole = (job) => {
-    if (!profile) return '-'
-    if (job.assigned_exec === profile.id) return 'Exec'
-    if (job.assigned_reviewer === profile.id) return 'Reviewer'
-    if (job.assigned_de === profile.id) return 'Data Entry'
-    return '-'
+  if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="text-gray-500">Loading...</div></div>
+
+  if (isBlocked) {
+    return (
+      <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-2xl font-bold text-red-600 mb-2">Timesheet Belum Dikemaskini!</h1>
+          <p className="text-gray-600 mb-2">Awak belum log hours untuk:</p>
+          <p className="text-lg font-bold text-red-500 mb-6">{new Date(missedDate).toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          <div className="bg-red-50 rounded-lg p-4 mb-6 text-left">
+            <p className="text-sm text-red-700 font-medium mb-1">⚠️ Penting:</p>
+            <p className="text-sm text-red-600">Log hours semalam sebelum boleh guna sistem. Hubungi HOO jika perlu bantuan.</p>
+          </div>
+          <button onClick={() => setIsBlocked(false)} className="w-full bg-red-500 text-white py-3 rounded-lg font-medium hover:bg-red-600 mb-3">
+            📝 Log Timesheet Sekarang
+          </button>
+          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="w-full bg-gray-100 text-gray-600 py-2 rounded-lg text-sm">
+            Log Keluar
+          </button>
+        </div>
+      </div>
+    )
   }
 
-  const isOverdue = (dueDate) => dueDate && new Date(dueDate) < new Date()
-  const jobTimesheets = (jobId) => timesheets.filter(t => t.job_id === jobId)
-
-  const activeJobs = jobs.filter(j => j.status !== 'completed')
-  const completedJobs = jobs.filter(j => j.status === 'completed')
-  const kivJobs = jobs.filter(j => j.is_kiv)
-  const overdueJobs = activeJobs.filter(j => isOverdue(j.due_date))
-
-  // Stats
-  const totalHoursThisMonth = timesheets
-    .filter(t => t.log_date?.startsWith(today.slice(0, 7)))
-    .reduce((sum, t) => sum + Number(t.hours_logged), 0)
-
-  const totalRevenue = activeJobs.reduce((sum, job) => {
-    const role = getRole(job)
-    const val = Number(job.invoice_value || 0)
-    if (role === 'Exec') return sum + (job.assigned_de ? val * 0.75 : val * 0.80)
-    if (role === 'Reviewer') return sum + val * 0.20
-    if (role === 'Data Entry') return sum + val * 0.05
-    return sum
-  }, 0)
-
-  const displayJobs = activeTab === 'active' ? activeJobs : activeTab === 'completed' ? completedJobs : kivJobs
-
-  const getPendingBorderColor = (job) => {
-    const alert = getPendingAlert(job)
-    if (!alert) return ''
-    if (alert.color === 'red') return 'border-red-400 bg-red-50'
-    if (alert.color === 'orange') return 'border-orange-400 bg-orange-50'
-    if (alert.color === 'yellow') return 'border-yellow-400 bg-yellow-50'
-    return ''
-  }
+  const aktifJobs = jobs.filter(j => !['completed','kiv'].includes(j.status))
+  const kivJobs = jobs.filter(j => j.status === 'kiv')
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center">
+      <nav className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center">
         <div>
-          <h1 className="text-xl font-bold">AMACC PMS</h1>
-          <p className="text-blue-200 text-sm">Staff Dashboard</p>
+          <div className="font-bold text-lg">AMACC PMS</div>
+          <div className="text-sm opacity-80">Staff Dashboard</div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <span className="text-sm">{profile?.full_name}</span>
-          <button onClick={() => { supabase.auth.signOut(); router.push('/') }}
-            className="bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded-lg text-sm">Log Keluar</button>
+          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="bg-white text-blue-600 px-3 py-1 rounded text-sm font-medium">Log Keluar</button>
         </div>
-      </div>
+      </nav>
 
-      <div className="p-4 max-w-4xl mx-auto">
-        {/* Welcome */}
+      <div className="max-w-4xl mx-auto p-6">
         <div className="mb-4">
-          <h2 className="text-xl font-bold text-gray-800">Selamat Datang, {profile?.full_name}!</h2>
-          <p className="text-gray-500 text-sm">Hari ini: {today}</p>
+          <h1 className="text-xl font-bold text-gray-800">Selamat Datang, {profile?.full_name}!</h1>
+          <p className="text-sm text-gray-500">Hari ini: {new Date().toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
         </div>
 
-        {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-white rounded-xl p-4 shadow-sm border">
-            <p className="text-xs text-gray-500">Jobs Aktif</p>
-            <p className="text-2xl font-bold text-blue-600">{activeJobs.length}</p>
+          <div className="bg-white rounded-lg border p-3">
+            <div className="text-xs text-gray-500">Jobs Aktif</div>
+            <div className="text-2xl font-bold text-blue-600">{aktifJobs.length}</div>
           </div>
-          <div className="bg-white rounded-xl p-4 shadow-sm border">
-            <p className="text-xs text-gray-500">Overdue</p>
-            <p className={`text-2xl font-bold ${overdueJobs.length > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              {overdueJobs.length}
-            </p>
+          <div className="bg-white rounded-lg border p-3">
+            <div className="text-xs text-gray-500">Overdue</div>
+            <div className="text-2xl font-bold text-red-500">{jobs.filter(j => j.due_date && new Date(j.due_date) < new Date()).length}</div>
           </div>
-          <div className="bg-white rounded-xl p-4 shadow-sm border">
-            <p className="text-xs text-gray-500">Jam Bulan Ini</p>
-            <p className="text-2xl font-bold text-purple-600">{totalHoursThisMonth.toFixed(1)}</p>
+          <div className="bg-white rounded-lg border p-3">
+            <div className="text-xs text-gray-500">Unearned Bulan Ini</div>
+            <div className="text-lg font-bold text-orange-500">RM {unearnedRevenue.thisMonth.toFixed(2)}</div>
+            <div className="text-xs text-gray-400">{unearnedRevenue.missedDays} hari tak log</div>
           </div>
-          <div className="bg-white rounded-xl p-4 shadow-sm border">
-            <p className="text-xs text-gray-500">Revenue Attribution</p>
-            <p className="text-lg font-bold text-green-600">RM {totalRevenue.toLocaleString('ms-MY', {maximumFractionDigits: 0})}</p>
+          <div className="bg-white rounded-lg border p-3">
+            <div className="text-xs text-gray-500">Jam Hari Ini</div>
+            <div className="text-lg font-bold text-green-600">{Object.values(todayLogs).reduce((a,b) => a + Number(b), 0)} jam</div>
           </div>
         </div>
 
-        {message && (
-          <div className={`mb-4 p-3 rounded-lg text-sm ${message.includes('❌') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
-            {message}
+        {unearnedRevenue.missedDays > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
+            <p className="text-orange-700 font-medium">⚠️ {unearnedRevenue.missedDays} hari bulan ini tiada timesheet</p>
+            <p className="text-orange-600 text-sm">Anggaran revenue tidak dikira: <strong>RM {unearnedRevenue.thisMonth.toFixed(2)}</strong></p>
           </div>
         )}
 
-        {/* Tabs */}
+        {message && <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-green-700">{message}</div>}
+
         <div className="flex gap-2 mb-4">
-          {[
-            { key: 'active', label: `Aktif (${activeJobs.length})` },
-            { key: 'completed', label: `Selesai (${completedJobs.length})` },
-            { key: 'kiv', label: `KIV (${kivJobs.length})` }
-          ].map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === tab.key ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border'}`}>
-              {tab.label}
-            </button>
-          ))}
+          <button onClick={() => setActiveTab('aktif')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'aktif' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>Aktif ({aktifJobs.length})</button>
+          <button onClick={() => setActiveTab('timesheet')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'timesheet' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>📝 Log Hari Ini</button>
+          <button onClick={() => setActiveTab('kiv')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'kiv' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>KIV ({kivJobs.length})</button>
         </div>
 
-        {loading ? (
-          <div className="text-center py-12 text-gray-500">Loading...</div>
-        ) : displayJobs.length === 0 ? (
-          <div className="bg-white rounded-xl p-8 text-center text-gray-500">Tiada job dalam kategori ini</div>
-        ) : (
-          <div className="space-y-6">
-            {displayJobs.map(job => {
-              const alert = getPendingAlert(job)
-              return (
-                <div key={job.id} className={`bg-white rounded-xl shadow-sm border-2 ${isOverdue(job.due_date) && job.status !== 'completed' ? 'border-red-300' : getPendingBorderColor(job) || 'border-gray-100'}`}>
-
-                  {/* Job Header */}
-                  <div className="p-5 border-b border-gray-100">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-gray-800 text-lg">{job.clients?.company_name}</h3>
-                        <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
-                        <p className="text-green-600 font-semibold">RM {Number(job.invoice_value || 0).toLocaleString()}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-medium px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-                          {getRole(job)}
-                        </span>
-                        <p className={`text-xs mt-1 ${isOverdue(job.due_date) && job.status !== 'completed' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
-                          Due: {job.due_date ? new Date(job.due_date).toLocaleDateString('ms-MY') : '-'}
-                          {isOverdue(job.due_date) && job.status !== 'completed' && ' ⚠️'}
-                        </p>
-                        {job.is_kiv && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">⚠️ KIV</span>}
-                      </div>
-                    </div>
-
-                    {/* Alert banner */}
-                    {alert && (
-                      <div className={`mt-2 px-3 py-2 rounded-lg text-xs font-medium ${
-                        alert.color === 'red' ? 'bg-red-100 text-red-700' :
-                        alert.color === 'orange' ? 'bg-orange-100 text-orange-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        ⏳ {job.job_status} — {alert.label}
-                      </div>
-                    )}
-
-                    {/* Team info */}
-                    <div className="flex gap-4 mt-2 text-xs text-gray-500 flex-wrap">
-                      {job.assigned_exec && <span>👤 Exec: <strong>{allProfiles[job.assigned_exec] || '-'}</strong></span>}
-                      {job.assigned_reviewer && job.assigned_reviewer !== job.assigned_exec && (
-                        <span>🔍 Reviewer: <strong>{allProfiles[job.assigned_reviewer] || '-'}</strong></span>
-                      )}
-                      {job.assigned_de && <span>📊 DE: <strong>{allProfiles[job.assigned_de] || '-'}</strong></span>}
-                      <span>⏱️ Budget: <strong>{job.budgeted_hours || 80} jam</strong></span>
-                      <span>📝 Logged: <strong>{jobTimesheets(job.id).reduce((s,t) => s + Number(t.hours_logged), 0).toFixed(1)} jam</strong></span>
-                    </div>
-
-                    {job.job_description && (
-                      <div className="mt-3 bg-blue-50 p-3 rounded-lg">
-                        <p className="text-xs font-medium text-blue-700 mb-1">📋 Skop Kerja:</p>
-                        <p className="text-sm text-gray-700 whitespace-pre-line">{job.job_description}</p>
-                      </div>
-                    )}
+        {activeTab === 'aktif' && (
+          <div className="space-y-4">
+            {aktifJobs.length === 0 ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs aktif</div>
+            : aktifJobs.map(job => (
+              <div key={job.id} className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h3 className="font-bold text-gray-800">{job.clients?.company_name}</h3>
+                    <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
+                    <p className="text-green-600 font-bold">RM {Number(job.invoice_value).toLocaleString()}</p>
                   </div>
+                  <div className="text-right">
+                    <span className="text-xs text-gray-500">Due: {job.due_date ? new Date(job.due_date).toLocaleDateString('ms-MY') : '-'}</span>
+                    {job.due_date && new Date(job.due_date) < new Date() && <div className="text-xs text-red-500 font-medium">⚠️ OVERDUE</div>}
+                  </div>
+                </div>
+                {job.job_description && <div className="bg-gray-50 rounded p-2 text-sm text-gray-600">📋 {job.job_description}</div>}
+              </div>
+            ))}
+          </div>
+        )}
 
-                  {/* Progress */}
-                  {job.status !== 'completed' && (
-                    <div className="p-5 border-b border-gray-100">
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">📊 Kemaskini Status & Progress</h4>
-
-                      {/* Job Status Dropdown */}
-                      <div className="mb-3">
-                        <label className="text-xs text-gray-500 mb-1 block">Status Job</label>
-                        <select value={jobStatusMap[job.id] ?? 'In Progress (10% - 70%)'}
-                          onChange={e => {
-                            const newStatus = e.target.value
-                            setJobStatusMap(prev => ({ ...prev, [job.id]: newStatus }))
-                            const autoP = getProgressFromStatus(newStatus)
-                            if (autoP !== null) setProgress(prev => ({ ...prev, [job.id]: autoP }))
-                          }}
-                          className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                          <optgroup label="— Job Status —">
-                            {jobStatusOptions.general.map(s => <option key={s} value={s}>{s}</option>)}
-                          </optgroup>
-                          <optgroup label="— Tax Progress —">
-                            {jobStatusOptions.tax.map(s => <option key={s} value={s}>{s}</option>)}
-                          </optgroup>
-                          <optgroup label="— Coaching/Advisory —">
-                            {jobStatusOptions.coaching.map(s => <option key={s} value={s}>{s}</option>)}
-                          </optgroup>
-                        </select>
-                      </div>
-
-                      {/* Progress slider */}
-                      <div className="flex items-center gap-3 mb-3">
-                        <span className="text-sm text-gray-600 shrink-0">% Siap</span>
-                        <input type="range" min="0" max="100"
-                          value={progress[job.id] ?? 0}
-                          onChange={e => setProgress(prev => ({ ...prev, [job.id]: parseInt(e.target.value) }))}
-                          className="flex-1" />
-                        <span className="text-blue-600 font-bold w-12 text-right">{progress[job.id] ?? 0}%</span>
-                      </div>
-
-                      <button onClick={() => handleSaveProgress(job.id)} disabled={saving}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm disabled:opacity-50">
-                        💾 Simpan Progress
-                      </button>
+        {activeTab === 'timesheet' && (
+          <div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-blue-700 text-sm">📝 Update jam untuk job yang awak buat hari ni sahaja. Job lain kekal 0 jam.</p>
+            </div>
+            <div className="space-y-3">
+              {aktifJobs.map(job => (
+                <div key={job.id} className="bg-white rounded-lg border p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <div>
+                      <p className="font-medium text-sm">{job.clients?.company_name}</p>
+                      <p className="text-xs text-gray-500">{job.invoice_number} • {job.service_type}</p>
                     </div>
-                  )}
-
-                  {/* Log Hours */}
-                  {job.status !== 'completed' && (
-                    <div className="p-5 border-b border-gray-100">
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">📝 Log Kerja Hari Ini ({today})</h4>
-                      <textarea
-                        value={todayNotes[job.id] || ''}
-                        onChange={e => setTodayNotes(prev => ({ ...prev, [job.id]: e.target.value }))}
-                        placeholder="Contoh: Buat reconciliation akaun bank Jan-Mac..."
-                        className="w-full px-3 py-2 border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        rows={2} />
-                      <div className="flex gap-3 items-center mt-2">
-                        <span className="text-sm text-gray-600">Jam:</span>
-                        <input type="number" min="0" max="24" step="0.5"
-                          value={todayHours[job.id] || ''}
-                          onChange={e => setTodayHours(prev => ({ ...prev, [job.id]: e.target.value }))}
-                          className="w-20 px-3 py-2 border rounded-lg text-sm" placeholder="0" />
-                        <span className="text-sm text-gray-600">jam</span>
-                        <button onClick={() => handleSaveHours(job.id)} disabled={saving}
-                          className="ml-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50">
-                          💾 Simpan Log
-                        </button>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <input type="number" min="0" max="12" step="0.5"
+                        value={todayLogs[job.id] || 0}
+                        onChange={e => setTodayLogs({...todayLogs, [job.id]: e.target.value})}
+                        className="w-16 border rounded px-2 py-1 text-center text-sm" />
+                      <span className="text-xs text-gray-500">jam</span>
                     </div>
-                  )}
-
-                  {/* Log History */}
-                  {jobTimesheets(job.id).length > 0 && (
-                    <div className="p-5">
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">📅 Log History</h4>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {jobTimesheets(job.id).map(t => (
-                          <div key={t.id} className="flex justify-between items-start bg-gray-50 px-3 py-2 rounded-lg text-sm">
-                            <div>
-                              <span className="text-gray-400 text-xs">{t.log_date}</span>
-                              <p className="text-gray-700">{t.note}</p>
-                            </div>
-                            <span className="text-blue-600 font-medium ml-3 shrink-0">{t.hours_logged} jam</span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-xs text-gray-400 mt-2 text-right">
-                        Total: {jobTimesheets(job.id).reduce((sum, t) => sum + Number(t.hours_logged), 0).toFixed(1)} jam
-                        {job.budgeted_hours && ` / ${job.budgeted_hours} jam budget`}
-                      </p>
-                    </div>
+                  </div>
+                  {Number(todayLogs[job.id]) > 0 && (
+                    <input type="text" placeholder="Nota kerja (optional)"
+                      value={notes[job.id] || ''}
+                      onChange={e => setNotes({...notes, [job.id]: e.target.value})}
+                      className="w-full border rounded px-3 py-1 text-sm mt-1" />
                   )}
                 </div>
-              )
-            })}
+              ))}
+            </div>
+            <button onClick={saveTimesheets} disabled={saving}
+              className="w-full mt-4 bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50">
+              {saving ? 'Menyimpan...' : '💾 Simpan Semua Timesheet'}
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'kiv' && (
+          <div className="space-y-3">
+            {kivJobs.length === 0 ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs KIV</div>
+            : kivJobs.map(job => (
+              <div key={job.id} className="bg-white rounded-lg border border-yellow-200 p-4">
+                <h3 className="font-bold text-gray-800">{job.clients?.company_name}</h3>
+                <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
+                <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">KIV</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
