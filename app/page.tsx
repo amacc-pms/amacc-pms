@@ -11,23 +11,18 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const router = useRouter()
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
-    if (error) {
-      setError(error.message)
+    const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    if (authError) {
+      setError('Email atau password salah.')
       setLoading(false)
       return
     }
 
-    // Get user role from profiles table
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
@@ -40,7 +35,6 @@ export default function LoginPage() {
       return
     }
 
-    // Redirect based on role
     if (profile.role === 'ceo') {
       router.push('/dashboard/ceo')
     } else if (profile.role === 'hoo') {
@@ -55,12 +49,10 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md">
-        
+
         {/* Logo & Title */}
         <div className="text-center mb-8">
-          <div className="bg-blue-600 text-white text-2xl font-bold py-3 px-6 rounded-xl inline-block mb-4">
-            AMACC
-          </div>
+          <img src="/logo.png" alt="AMACC" className="h-20 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-800">Practice Management System</h1>
           <p className="text-gray-500 mt-1">Log masuk untuk teruskan</p>
         </div>
@@ -75,45 +67,36 @@ export default function LoginPage() {
         {/* Login Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={e => setEmail(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="nama@amacc.com"
               required
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="••••••••"
+              onChange={e => setPassword(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
             />
           </div>
-
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+            className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             {loading ? 'Log masuk...' : 'Log Masuk'}
           </button>
         </form>
 
-        <p className="text-center text-sm text-gray-400 mt-6">
-          AMACC Consulting Services Sdn Bhd
-        </p>
+        <p className="text-center text-sm text-gray-400 mt-6">AMACC Consulting Services Sdn Bhd</p>
       </div>
     </div>
   )
