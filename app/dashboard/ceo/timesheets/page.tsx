@@ -5,7 +5,7 @@ import { supabase } from '../../../../lib/supabase'
 import { useRouter } from 'next/navigation'
 
 export default function CEOTimesheets() {
-  const [timesheets, setTimesheets] = useState([])
+  const [timesheets, setTimesheets] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
