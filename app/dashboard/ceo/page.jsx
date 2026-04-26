@@ -53,8 +53,7 @@ export default function CEODashboard() {
     { href: '/dashboard/ceo/revenue', icon: '📊', title: 'Revenue & Cost', desc: 'Revenue, cost & profit' },
     { href: '/dashboard/ceo/timesheets', icon: '⏱️', title: 'Timesheet', desc: 'Monitor semua timesheet' },
     { href: '/dashboard/ceo/clients', icon: '🏢', title: 'Clients', desc: 'Senarai klien' },
-    { href: '/dashboard/ceo/osm', icon: '📋', title: 'OSM', desc: 'Outstanding matters semua staff' }, klien' },
-  ]
+    { href: '/dashboard/ceo/osm', icon: '📋', title: 'OSM', desc: 'Outstanding matters' },] 
 
   return (
     <div className="min-h-screen bg-gray-50">
