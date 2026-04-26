@@ -58,17 +58,30 @@ export default function ClientManagement() {
     setUploadStatus('Reading file...')
 
     const text = await file.text()
-    const lines = text.split('\n').filter(l => l.trim())
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-
-    const rows = []
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''))
-      if (!values[0]) continue
-      const row = {}
-      headers.forEach((h, idx) => { row[h] = values[idx] || '' })
-      rows.push(row)
+    const parseCSV = (text) => {
+      const rows = []
+      const lines = text.split('\n')
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim()
+        if (!line) continue
+        const values = []
+        let current = ''
+        let inQuotes = false
+        for (let c = 0; c < line.length; c++) {
+          if (line[c] === '"') { inQuotes = !inQuotes }
+          else if (line[c] === ',' && !inQuotes) { values.push(current.trim()); current = '' }
+          else { current += line[c] }
+        }
+        values.push(current.trim())
+        if (!values[0]) continue
+        const row = {}
+        headers.forEach((h, idx) => { row[h] = values[idx] || '' })
+        rows.push(row)
+      }
+      return rows
     }
+    const rows = parseCSV(text)
 
     setUploadStatus(`Found ${rows.length} clients. Uploading...`)
 
@@ -89,7 +102,7 @@ export default function ClientManagement() {
 
       const { error } = await supabase
         .from('clients')
-        .upsert(insertData, { onConflict: 'company_name', ignoreDuplicates: true })
+        .insert(insertData)
 
       if (error) {
         skipped += batch.length
