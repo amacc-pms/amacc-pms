@@ -14,7 +14,8 @@ export default function ClientManagement() {
     contact_person: '',
     contact_email: '',
     contact_phone: '',
-    address: ''
+    address: '',
+      client_type: 'company'
   })
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -127,6 +128,17 @@ export default function ClientManagement() {
                   required
                 />
               </div>
+              <div className="md:col-span-2">
+  <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Klien</label>
+  <select
+    value={formData.client_type}
+    onChange={(e) => setFormData({...formData, client_type: e.target.value})}
+    className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+  >
+    <option value="company">Syarikat (Company)</option>
+    <option value="individual">Individu (Personal)</option>
+  </select>
+</div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nama Contact Person</label>
                 <input
