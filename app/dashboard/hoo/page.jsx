@@ -317,7 +317,7 @@ export default function HOODashboard() {
                           {isOverdue && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef2f2', color: '#dc2626' }}>⚠️ OVERDUE</span>}
                           {!job.assigned_exec && daysSinceCreate >= 3 && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef2f2', color: '#dc2626' }}>🔴 {daysSinceCreate} hari belum assign!</span>}
                         </div>
-                        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px' }}>{job.invoice_number} • {job.service_type}</p>
+                        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px' }}>{job.invoice_number} • {job.service_type}{job.financial_year_end ? ` • FYE: ${job.financial_year_end}` : ''}</p>
                         {job.invoice_value && <p style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', margin: '0 0 4px' }}>RM {Number(job.invoice_value).toLocaleString('ms-MY', { minimumFractionDigits: 2 })}</p>}
                         {job.job_description && <p style={{ fontSize: 12, color: '#475569', margin: '4px 0', background: '#fffbeb', padding: '6px 10px', borderRadius: 6, borderLeft: '3px solid #f59e0b' }}>📋 {job.job_description}</p>}
                         <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
