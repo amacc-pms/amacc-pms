@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { supabase } from '../../../../lib/supabase'
-
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../../lib/supabase'
 
 function TimesheetHistoryContent() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const jobId = searchParams.get('job')
   const [logs, setLogs] = useState([])
@@ -71,7 +71,6 @@ function TimesheetHistoryContent() {
           {job && <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 14 }}>{job.clients?.company_name} — {job.invoice_number} • {job.service_type}</p>}
         </div>
 
-        {/* Staff Summary */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
           {Object.entries(staffSummary).map(([name, data], i) => (
             <div key={i} style={{ background: 'white', borderRadius: 12, padding: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', textAlign: 'center' }}>
@@ -87,7 +86,6 @@ function TimesheetHistoryContent() {
           </div>
         </div>
 
-        {/* Filter */}
         <div style={{ background: 'white', borderRadius: 12, padding: 16, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
@@ -112,7 +110,6 @@ function TimesheetHistoryContent() {
           )}
         </div>
 
-        {/* Table */}
         <div style={{ background: 'white', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
           <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', margin: '0 0 16px' }}>📋 Log Entries ({filteredLogs.length})</h2>
           {filteredLogs.length === 0 ? (
