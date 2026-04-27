@@ -28,7 +28,7 @@ function TimesheetHistoryContent() {
     setJob(jobData)
     const { data: logData } = await supabase
       .from('timesheets')
-      .select('*, profiles(full_name, position)')
+      .select('*, profiles!timesheets_staff_id_fkey(full_name, position)')
       .eq('job_id', jobId)
       .order('log_date', { ascending: false })
     setLogs(logData || [])
