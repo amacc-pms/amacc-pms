@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { createClient } from '../../../../../lib/supabase'
+import { createClient } from '../../../../lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 function TimesheetHistoryContent() {
