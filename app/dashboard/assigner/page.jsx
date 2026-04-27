@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { supabase } from '../../../lib/supabase'
 
 const STAGES = [
   { key: 'new_lead', label: '📥 New Lead', color: '#6366f1' },
@@ -25,7 +25,7 @@ const SERVICE_TYPES = [
 
 export default function AssignerDashboard() {
   const router = useRouter()
-  const supabase = createClientComponentClient()
+  
   const [profile, setProfile] = useState(null)
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
