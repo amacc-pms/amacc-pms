@@ -111,7 +111,7 @@ export default function HOODashboard() {
   function openAssign(job, e) {
     if (e) e.stopPropagation()
     setSelectedJob(job)
-    assigned_exec: '', assigned_reviewer: '', assigned_de: '', has_de: false, budgeted_hours: 80, due_date: '', due_date_reason: '', financial_year_end: '', fye_reason: ''
+      setAssignData({assigned_exec: '', assigned_reviewer: '', assigned_de: '', has_de: false, budgeted_hours: 80, due_date: '', due_date_reason: '', financial_year_end: '', fye_reason: ''})
     setAssigning(true)
   }
 
