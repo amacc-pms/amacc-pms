@@ -6,17 +6,25 @@ import { useRouter } from 'next/navigation'
 
 export default function HOODashboard() {
   const [jobs, setJobs] = useState([])
+  const [myJobs, setMyJobs] = useState([])
   const [profile, setProfile] = useState(null)
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedJob, setSelectedJob] = useState(null)
+  const [modalTab, setModalTab] = useState('detail')
+  const [jobDetail, setJobDetail] = useState(null)
+  const [instructions, setInstructions] = useState([])
+  const [assignHistory, setAssignHistory] = useState([])
+  const [newInstruction, setNewInstruction] = useState('')
+  const [newUrgency, setNewUrgency] = useState('normal')
+  const [sendingInstr, setSendingInstr] = useState(false)
   const [assigning, setAssigning] = useState(false)
   const [assignData, setAssignData] = useState({ assigned_exec: '', assigned_reviewer: '', assigned_de: '', has_de: false, budgeted_hours: 80 })
   const [searchText, setSearchText] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterDiv, setFilterDiv] = useState('')
+  const [activeSection, setActiveSection] = useState('unassigned')
   const router = useRouter()
-
   const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => { checkAuth() }, [])
@@ -32,17 +40,35 @@ export default function HOODashboard() {
 
   async function loadData(prof) {
     let query = supabase.from('jobs').select('*, clients!jobs_client_id_fkey(company_name)').order('created_at', { ascending: false })
-    if (prof?.role === 'hoo' && prof?.division) {
-      query = query.eq('division', prof.division)
-    }
+    if (prof?.role === 'hoo' && prof?.division) query = query.eq('division', prof.division)
     const { data: jobsData } = await query
     setJobs(jobsData || [])
+    const { data: myJobsData } = await supabase.from('jobs').select('*, clients!jobs_client_id_fkey(company_name)')
+      .or(`assigned_exec.eq.${prof.id},assigned_reviewer.eq.${prof.id}`)
+      .not('status', 'eq', 'completed')
+    setMyJobs(myJobsData || [])
     const { data: profilesData } = await supabase.from('profiles').select('id, full_name, role, is_active').eq('is_active', true).order('full_name')
     setProfiles(profilesData || [])
     setLoading(false)
   }
 
-  function openAssign(job) {
+  async function openJobModal(job) {
+    setSelectedJob(job)
+    setModalTab('detail')
+    const { data: execP } = job.assigned_exec ? await supabase.from('profiles').select('full_name').eq('id', job.assigned_exec).single() : { data: null }
+    const { data: reviewerP } = job.assigned_reviewer ? await supabase.from('profiles').select('full_name').eq('id', job.assigned_reviewer).single() : { data: null }
+    const { data: deP } = job.assigned_de ? await supabase.from('profiles').select('full_name').eq('id', job.assigned_de).single() : { data: null }
+    const { data: timesheets } = await supabase.from('timesheets').select('*').eq('job_id', job.id)
+    const totalHours = (timesheets || []).reduce((s, t) => s + (t.hours_logged || 0), 0)
+    setJobDetail({ execName: execP?.full_name, reviewerName: reviewerP?.full_name, deName: deP?.full_name, totalHours })
+    const { data: instrs } = await supabase.from('job_instructions').select('*, profiles(full_name), instruction_replies(*, profiles(full_name))').eq('job_id', job.id).order('created_at', { ascending: false })
+    setInstructions(instrs || [])
+    const { data: history } = await supabase.from('job_assignment_history').select('*').eq('job_id', job.id).order('assigned_at', { ascending: false })
+    setAssignHistory(history || [])
+  }
+
+  function openAssign(job, e) {
+    e.stopPropagation()
     setSelectedJob(job)
     setAssignData({ assigned_exec: job.assigned_exec || '', assigned_reviewer: job.assigned_reviewer || '', assigned_de: job.assigned_de || '', has_de: !!job.assigned_de, budgeted_hours: job.budgeted_hours || 80 })
     setAssigning(true)
@@ -61,10 +87,22 @@ export default function HOODashboard() {
     await supabase.from('job_assignment_history').insert({ job_id: selectedJob.id, exec_id: assignData.assigned_exec, reviewer_id: assignData.assigned_reviewer || assignData.assigned_exec, data_entry_id: assignData.has_de ? assignData.assigned_de : null, assigned_by: profile.id, assigned_at: now.toISOString(), month_year: monthYear, exec_name: execProfile?.full_name || '', reviewer_name: reviewerProfile?.full_name || '', data_entry_name: deProfile?.full_name || null })
     const { error } = await supabase.from('jobs').update({ assigned_exec: assignData.assigned_exec, assigned_reviewer: assignData.assigned_reviewer || assignData.assigned_exec, assigned_de: assignData.has_de ? assignData.assigned_de : null, budgeted_hours: assignData.budgeted_hours, status: 'in_progress' }).eq('id', selectedJob.id)
     if (error) { alert('Error: ' + error.message); return }
-    alert('✅ Assignment berjaya disimpan!')
+    alert('✅ Assignment berjaya!')
     setAssigning(false)
     setSelectedJob(null)
     await loadData(profile)
+  }
+
+  async function sendInstruction() {
+    if (!newInstruction.trim()) return
+    setSendingInstr(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('job_instructions').insert({ job_id: selectedJob.id, assigned_to: selectedJob.assigned_exec, message: newInstruction, urgency_level: newUrgency, status: 'open', created_by: user.id })
+    setNewInstruction('')
+    setNewUrgency('normal')
+    const { data: instrs } = await supabase.from('job_instructions').select('*, profiles(full_name), instruction_replies(*, profiles(full_name))').eq('job_id', selectedJob.id).order('created_at', { ascending: false })
+    setInstructions(instrs || [])
+    setSendingInstr(false)
   }
 
   const STATUS_LABELS = { not_started: '⚪ Belum Mula', in_progress: '🔵 Dalam Proses', pending_client: '🟡 Pending Client', pending_authority: '🟠 Pending LHDN', kiv: '📌 KIV', completed: '✅ Selesai' }
@@ -78,20 +116,23 @@ export default function HOODashboard() {
     return matchSearch && matchStatus && matchDiv
   })
 
+  const unassignedJobs = filteredJobs.filter(j => !j.assigned_exec)
+  const assignedJobs = filteredJobs.filter(j => j.assigned_exec)
+
   const metrics = {
-    total: filteredJobs.length,
-    unassigned: filteredJobs.filter(j => !j.assigned_exec).length,
-    inProgress: filteredJobs.filter(j => j.status === 'in_progress').length,
-    pending: filteredJobs.filter(j => ['pending_client','pending_authority'].includes(j.status)).length,
-    overdue: filteredJobs.filter(j => j.due_date && j.due_date < today && j.status !== 'completed').length,
-    completed: filteredJobs.filter(j => j.status === 'completed').length,
+    total: jobs.length,
+    unassigned: jobs.filter(j => !j.assigned_exec).length,
+    inProgress: jobs.filter(j => j.status === 'in_progress').length,
+    pending: jobs.filter(j => ['pending_client','pending_authority'].includes(j.status)).length,
+    overdue: jobs.filter(j => j.due_date && j.due_date < today && j.status !== 'completed').length,
+    completed: jobs.filter(j => j.status === 'completed').length,
   }
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}><p>Memuatkan...</p></div>
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
-      {/* TOP NAV */}
+      {/* NAV */}
       <div style={{ background: '#ea580c', color: 'white', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 100 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 16 }}>AMACC PMS</div>
@@ -120,6 +161,40 @@ export default function HOODashboard() {
               <div style={{ fontSize: 22, fontWeight: 800, color: m.color }}>{m.value}</div>
               <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{m.label}</div>
             </div>
+          ))}
+        </div>
+
+        {/* MY JOBS — untuk HOO yang juga Reviewer/Exec */}
+        {myJobs.length > 0 && (
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#92400e', margin: '0 0 12px' }}>👤 My Jobs — Job Saya Sendiri ({myJobs.length})</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {myJobs.map(job => (
+                <div key={job.id} onClick={() => openJobModal(job)} style={{ background: 'white', borderRadius: 8, padding: '10px 14px', border: '1px solid #fde68a', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{job.clients?.company_name}</span>
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>{job.invoice_number} • {job.service_type}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: (STATUS_COLORS[job.status] || '#94a3b8') + '20', color: STATUS_COLORS[job.status] || '#94a3b8', fontWeight: 600 }}>{STATUS_LABELS[job.status] || '-'}</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>Due: {job.due_date ? new Date(job.due_date).toLocaleDateString('ms-MY') : '-'}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SECTION TABS */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+          {[
+            { id: 'unassigned', label: `🔴 Belum Assign (${unassignedJobs.length})` },
+            { id: 'all', label: `📋 Semua Job (${filteredJobs.length})` },
+          ].map(tab => (
+            <button key={tab.id} onClick={() => setActiveSection(tab.id)}
+              style={{ padding: '8px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: activeSection === tab.id ? '#1e293b' : '#e2e8f0', color: activeSection === tab.id ? 'white' : '#475569' }}>
+              {tab.label}
+            </button>
           ))}
         </div>
 
@@ -165,16 +240,20 @@ export default function HOODashboard() {
 
         {/* JOB LIST */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filteredJobs.length === 0 ? (
+          {(activeSection === 'unassigned' ? unassignedJobs : filteredJobs).length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', background: 'white', borderRadius: 12 }}>
-              <div style={{ fontSize: 40 }}>📭</div>
-              <p style={{ marginTop: 8 }}>Tiada job dijumpai</p>
+              <div style={{ fontSize: 40 }}>{activeSection === 'unassigned' ? '🎉' : '📭'}</div>
+              <p style={{ marginTop: 8 }}>{activeSection === 'unassigned' ? 'Semua job dah assign!' : 'Tiada job dijumpai'}</p>
             </div>
-          ) : filteredJobs.map(job => {
+          ) : (activeSection === 'unassigned' ? unassignedJobs : filteredJobs).map(job => {
             const isOverdue = job.due_date && job.due_date < today && job.status !== 'completed'
             const divStyle = DIV_COLORS[job.division] || { bg: '#f8fafc', color: '#475569', border: '#e2e8f0' }
+            const daysSinceCreate = job.created_at ? Math.floor((new Date() - new Date(job.created_at)) / 86400000) : 0
             return (
-              <div key={job.id} style={{ background: 'white', borderRadius: 12, padding: 16, border: `1px solid ${isOverdue ? '#fecaca' : '#e2e8f0'}`, background: isOverdue ? '#fff5f5' : 'white' }}>
+              <div key={job.id} onClick={() => openJobModal(job)}
+                style={{ background: isOverdue ? '#fff5f5' : 'white', borderRadius: 12, padding: 16, border: `1px solid ${isOverdue ? '#fecaca' : '#e2e8f0'}`, cursor: 'pointer', transition: 'box-shadow 0.2s' }}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
@@ -182,6 +261,7 @@ export default function HOODashboard() {
                       <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: divStyle.bg, color: divStyle.color, border: `1px solid ${divStyle.border}` }}>{job.division}</span>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: (STATUS_COLORS[job.status] || '#94a3b8') + '20', color: STATUS_COLORS[job.status] || '#94a3b8' }}>{STATUS_LABELS[job.status] || 'Belum Assign'}</span>
                       {isOverdue && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef2f2', color: '#dc2626' }}>⚠️ OVERDUE</span>}
+                      {!job.assigned_exec && daysSinceCreate >= 3 && <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef2f2', color: '#dc2626' }}>🔴 {daysSinceCreate} hari belum assign!</span>}
                     </div>
                     <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px' }}>{job.invoice_number} • {job.service_type}</p>
                     {job.invoice_value && <p style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', margin: '0 0 4px' }}>RM {Number(job.invoice_value).toLocaleString('ms-MY', { minimumFractionDigits: 2 })}</p>}
@@ -193,8 +273,8 @@ export default function HOODashboard() {
                       <span>⏱️ Budget: <strong style={{ color: '#1e293b' }}>{job.budgeted_hours || 0} jam</strong></span>
                     </div>
                   </div>
-                  <button onClick={() => openAssign(job)}
-                    style={{ marginLeft: 12, padding: '8px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', background: job.assigned_exec ? '#16a34a' : '#2563eb', color: 'white', whiteSpace: 'nowrap' }}>
+                  <button onClick={e => openAssign(job, e)}
+                    style={{ marginLeft: 12, padding: '8px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', background: job.assigned_exec ? '#16a34a' : '#dc2626', color: 'white', whiteSpace: 'nowrap' }}>
                     {job.assigned_exec ? '✏️ Edit' : '👤 Assign'}
                   </button>
                 </div>
@@ -204,9 +284,146 @@ export default function HOODashboard() {
         </div>
       </div>
 
+      {/* JOB DETAIL MODAL */}
+      {selectedJob && !assigning && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, overflow: 'auto' }} onClick={e => { if (e.target === e.currentTarget) setSelectedJob(null) }}>
+          <div style={{ background: 'white', minHeight: '100vh', maxWidth: 800, margin: '0 auto' }}>
+            <div style={{ background: '#1e293b', color: 'white', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{selectedJob.clients?.company_name}</h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>{selectedJob.invoice_number} • {selectedJob.service_type}</p>
+              </div>
+              <button onClick={() => setSelectedJob(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '8px 16px', color: 'white', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>✕ Tutup</button>
+            </div>
+
+            <div style={{ borderBottom: '2px solid #f1f5f9', padding: '0 20px', background: 'white', display: 'flex', gap: 4 }}>
+              {[{ id: 'detail', label: '📋 Detail' }, { id: 'instructions', label: `📢 Instructions (${instructions.length})` }, { id: 'history', label: '🕐 History' }].map(tab => (
+                <button key={tab.id} onClick={() => setModalTab(tab.id)}
+                  style={{ background: 'none', border: 'none', borderBottom: modalTab === tab.id ? '3px solid #3b82f6' : '3px solid transparent', padding: '14px 16px', cursor: 'pointer', fontSize: 13, fontWeight: modalTab === tab.id ? 700 : 500, color: modalTab === tab.id ? '#3b82f6' : '#64748b', marginBottom: -2 }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ padding: 20 }}>
+              {modalTab === 'detail' && (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                    {[
+                      { label: 'Invoice Value', value: `RM ${(selectedJob.invoice_value || 0).toLocaleString('ms-MY', { minimumFractionDigits: 2 })}`, color: '#16a34a' },
+                      { label: 'Due Date', value: selectedJob.due_date ? new Date(selectedJob.due_date).toLocaleDateString('ms-MY') : '-', color: '#3b82f6' },
+                      { label: 'Budget Hours', value: `${selectedJob.budgeted_hours || 0} jam`, color: '#f59e0b' },
+                      { label: 'Jam Logged', value: `${jobDetail?.totalHours || 0} jam`, color: '#8b5cf6' },
+                    ].map((c, i) => (
+                      <div key={i} style={{ background: '#f8fafc', borderRadius: 10, padding: 14 }}>
+                        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{c.label}</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: c.color }}>{c.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedJob.job_description && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: '#92400e', margin: '0 0 6px' }}>📌 SKOP KERJA</p>
+                      <p style={{ fontSize: 14, color: '#1e293b', margin: 0, lineHeight: 1.6 }}>{selectedJob.job_description}</p>
+                    </div>
+                  )}
+                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: 14 }}>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: '#64748b', margin: '0 0 10px' }}>👥 TEAM</p>
+                    {[
+                      { role: 'EXEC', name: jobDetail?.execName, color: '#3b82f6' },
+                      { role: 'REVIEWER', name: jobDetail?.reviewerName, color: '#10b981' },
+                      jobDetail?.deName && { role: 'DATA ENTRY', name: jobDetail?.deName, color: '#8b5cf6' },
+                    ].filter(Boolean).map((t, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ fontSize: 12, color: t.color, fontWeight: 700 }}>{t.role}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{t.name || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={e => openAssign(selectedJob, e)} style={{ marginTop: 16, width: '100%', background: '#2563eb', color: 'white', border: 'none', borderRadius: 10, padding: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                    ✏️ Edit Assignment
+                  </button>
+                </div>
+              )}
+
+              {modalTab === 'instructions' && (
+                <div>
+                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', margin: '0 0 10px' }}>📤 Hantar Instruction Baru</p>
+                    <textarea value={newInstruction} onChange={e => setNewInstruction(e.target.value)} placeholder="Tulis instruction untuk staff..."
+                      rows={3} style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', resize: 'vertical', marginBottom: 10 }} />
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <select value={newUrgency} onChange={e => setNewUrgency(e.target.value)}
+                        style={{ padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13 }}>
+                        <option value="normal">Normal</option>
+                        <option value="urgent">🟡 Urgent</option>
+                        <option value="kritikal">🔴 Kritikal</option>
+                      </select>
+                      <button onClick={sendInstruction} disabled={sendingInstr}
+                        style={{ flex: 1, background: sendingInstr ? '#94a3b8' : '#2563eb', color: 'white', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: sendingInstr ? 'not-allowed' : 'pointer' }}>
+                        {sendingInstr ? '⏳ Menghantar...' : '📤 Hantar'}
+                      </button>
+                    </div>
+                  </div>
+                  {instructions.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '30px 0', color: '#94a3b8' }}>
+                      <div style={{ fontSize: 32 }}>📭</div>
+                      <p>Tiada instruction lagi</p>
+                    </div>
+                  ) : instructions.map(instr => (
+                    <div key={instr.id} style={{ background: instr.urgency_level === 'kritikal' ? '#fef2f2' : instr.urgency_level === 'urgent' ? '#fffbeb' : '#f8fafc', borderRadius: 12, padding: 14, marginBottom: 12, border: `1px solid ${instr.urgency_level === 'kritikal' ? '#fecaca' : instr.urgency_level === 'urgent' ? '#fde68a' : '#e2e8f0'}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, background: instr.urgency_level === 'kritikal' ? '#dc2626' : instr.urgency_level === 'urgent' ? '#f59e0b' : '#64748b', color: 'white', padding: '2px 8px', borderRadius: 20 }}>{(instr.urgency_level || 'normal').toUpperCase()}</span>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>{instr.profiles?.full_name} • {new Date(instr.created_at).toLocaleDateString('ms-MY')}</span>
+                      </div>
+                      <p style={{ fontSize: 14, color: '#1e293b', margin: '0 0 10px', lineHeight: 1.6 }}>{instr.message}</p>
+                      {(instr.instruction_replies || []).length > 0 && (
+                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', margin: '0 0 6px' }}>REPLIES:</p>
+                          {instr.instruction_replies.map(r => (
+                            <div key={r.id} style={{ background: 'white', borderRadius: 6, padding: '6px 10px', marginBottom: 4, fontSize: 12 }}>
+                              <span style={{ fontWeight: 600, color: '#3b82f6' }}>{r.profiles?.full_name}: </span>
+                              <span style={{ color: '#475569' }}>{r.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {modalTab === 'history' && (
+                <div>
+                  {assignHistory.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '30px 0', color: '#94a3b8' }}>
+                      <div style={{ fontSize: 32 }}>📭</div>
+                      <p>Tiada history assignment</p>
+                    </div>
+                  ) : assignHistory.map((h, i) => (
+                    <div key={i} style={{ background: '#f8fafc', borderRadius: 10, padding: 14, marginBottom: 10, border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{h.month_year}</span>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>{new Date(h.assigned_at).toLocaleDateString('ms-MY')}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: '#475569' }}>
+                        <span>👤 Exec: <strong>{h.exec_name || '—'}</strong></span>
+                        <span style={{ marginLeft: 16 }}>🔍 Reviewer: <strong>{h.reviewer_name || '—'}</strong></span>
+                        {h.data_entry_name && <span style={{ marginLeft: 16 }}>📝 DE: <strong>{h.data_entry_name}</strong></span>}
+                      </div>
+                      {h.ended_at && <p style={{ fontSize: 11, color: '#94a3b8', margin: '4px 0 0' }}>Tamat: {new Date(h.ended_at).toLocaleDateString('ms-MY')}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ASSIGN MODAL */}
       {assigning && selectedJob && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: 16 }}>
           <div style={{ background: 'white', borderRadius: 16, padding: 24, width: '100%', maxWidth: 480 }}>
             <h2 style={{ fontSize: 17, fontWeight: 800, margin: '0 0 4px' }}>Assign Staff</h2>
             <p style={{ fontSize: 13, color: '#64748b', margin: '0 0 20px' }}>{selectedJob.clients?.company_name} — {selectedJob.invoice_number}</p>
@@ -248,8 +465,8 @@ export default function HOODashboard() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-              <button onClick={saveAssignment} style={{ flex: 1, background: '#2563eb', color: 'white', border: 'none', borderRadius: 10, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>✅ Simpan</button>
-              <button onClick={() => { setAssigning(false); setSelectedJob(null) }} style={{ flex: 1, background: '#f1f5f9', color: '#374151', border: 'none', borderRadius: 10, padding: '12px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
+              <button onClick={saveAssignment} style={{ flex: 1, background: '#2563eb', color: 'white', border: 'none', borderRadius: 10, padding: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>✅ Simpan</button>
+              <button onClick={() => { setAssigning(false) }} style={{ flex: 1, background: '#f1f5f9', color: '#374151', border: 'none', borderRadius: 10, padding: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Batal</button>
             </div>
           </div>
         </div>
