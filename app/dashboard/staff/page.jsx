@@ -501,9 +501,10 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
             <div style={{ display: 'grid', gap: 10 }}>
               {filteredJobs.map(job => 
                 <div key={job.id} style={{ background: '#f8fafc', borderRadius: 10, padding: 12, border: '1px solid #e2e8f0' }}>
-                  <p style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', margin: '0 0 8px' }}>
+                  <p style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', margin: '0 0 4px' }}>
                     {job.clients?.company_name} <span style={{ color: '#94a3b8', fontWeight: 400 }}>— {job.invoice_number}</span>
                   </p>
+                  {job.financial_year_end && <p style={{ fontSize: 11, color: '#64748b', margin: '0 0 8px' }}>FYE: {job.financial_year_end} • {job.service_type}</p>}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 8 }}>
                     <div>
                       <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Jam Kerja</label>
