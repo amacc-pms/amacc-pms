@@ -58,7 +58,7 @@ export default function StaffDashboard() {
   async function loadJobs(userId) {
     const { data } = await supabase
       .from('jobs')
-      .select('*, clients(company_name, id)')
+      .select('*, clients!jobs_client_id_fkey(company_name, id)')
       .or(`assigned_exec.eq.${userId},assigned_reviewer.eq.${userId},assigned_de.eq.${userId}`)
       .not('status', 'eq', 'completed')
       .order('due_date', { ascending: true })
@@ -265,9 +265,13 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
     setMonthlySummary({ hoursLogged: hoursLogged.toFixed(1), revenueEarned: revenueEarned.toFixed(2), unearned: unearned.toFixed(2), daysLogged, daysMissed })
   }
 
-  const serviceTypes = [...new Set(jobs.map(j => j.service_type).filter(Boolean))]
+  const serviceTypes = {
+  'TAX': ['Form C (S/B)', 'Form B', 'Form Be', 'Form E', 'Form TF', 'Form EA', 'Form N', 'Form Q', 'Form P', 'Tax Audit', 'Tax - MA', 'CP204', 'CP204 (A)', 'CP204 (B)', 'Tax Estimation'],
+  'ACCOUNTING': ['Account Yearly (Current)', 'Account Yearly (Backlog)', 'Account Monthly', 'Account In Advance', 'Account Dormant', 'Accounts Review'],
+  'ADVISORY': ['SPC', 'SST Registration', 'Coaching & Training']
+}
 
-  const filteredJobs = jobs.filter(job => {
+  const filteredJobs = jobs.filter(job => 
     const matchSearch = searchText === '' || job.clients?.company_name?.toLowerCase().includes(searchText.toLowerCase())
     const matchService = filterService === '' || job.service_type === filterService
     const matchStatus = filterStatus === '' || job.status === filterStatus
@@ -448,7 +452,15 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
               <select value={filterService} onChange={e => setFilterService(e.target.value)}
                 style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}>
                 <option value="">Semua</option>
-                {serviceTypes.map(s => <option key={s} value={s}>{s}</option>)}
+                <optgroup label="── TAX ──">
+  {serviceTypes['TAX'].map(s => <option key={s} value={s}>{s}</option>)}
+</optgroup>
+<optgroup label="── ACCOUNTING ──">
+  {serviceTypes['ACCOUNTING'].map(s => <option key={s} value={s}>{s}</option>)}
+</optgroup>
+<optgroup label="── ADVISORY ──">
+  {serviceTypes['ADVISORY'].map(s => <option key={s} value={s}>{s}</option>)}
+</optgroup>
               </select>
             </div>
             <div>
