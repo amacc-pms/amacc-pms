@@ -2,7 +2,8 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { supabase } from '../../../../lib/supabase'
-import { useRouter, useSearchParams } from 'next/navigation'
+
+import { supabase } from '../../../../lib/supabase'
 
 function TimesheetHistoryContent() {
   const searchParams = useSearchParams()
