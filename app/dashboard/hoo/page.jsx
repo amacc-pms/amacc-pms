@@ -31,7 +31,7 @@ export default function HOODashboard() {
   }
 
   async function loadData(prof) {
-    let query = supabase.from('jobs').select('*, clients(company_name)').order('created_at', { ascending: false })
+    let query = supabase.from('jobs').select('*, clients!jobs_client_id_fkey(company_name)').order('created_at', { ascending: false })
     if (prof?.role === 'hoo' && prof?.division) {
       query = query.eq('division', prof.division)
     }
