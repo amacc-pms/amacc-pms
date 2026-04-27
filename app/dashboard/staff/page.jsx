@@ -271,7 +271,7 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
   'ADVISORY': ['SPC', 'SST Registration', 'Coaching & Training']
 }
 
-  const filteredJobs = jobs.filter(job => 
+  const filteredJobs = jobs.filter(job => { 
     const matchSearch = searchText === '' || job.clients?.company_name?.toLowerCase().includes(searchText.toLowerCase())
     const matchService = filterService === '' || job.service_type === filterService
     const matchStatus = filterStatus === '' || job.status === filterStatus
