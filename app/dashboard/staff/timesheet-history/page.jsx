@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '../../../../../lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 function TimesheetHistoryContent() {
-  const supabase = createClientComponentClient()
+  const supabase = createClient()
   const router = useRouter()
   const searchParams = useSearchParams()
   const jobId = searchParams.get('job')
