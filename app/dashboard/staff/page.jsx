@@ -271,7 +271,7 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
   'ADVISORY': ['SPC', 'SST Registration', 'Coaching & Training']
 }
 
-  const filteredJobs = jobs.filter(job => { 
+  const filteredJobs = jobs.filter(job =>{ 
     const matchSearch = searchText === '' || job.clients?.company_name?.toLowerCase().includes(searchText.toLowerCase())
     const matchService = filterService === '' || job.service_type === filterService
     const matchStatus = filterStatus === '' || job.status === filterStatus
@@ -452,13 +452,13 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
               <select value={filterService} onChange={e => setFilterService(e.target.value)}
                 style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}>
                 <option value="">Semua</option>
-                <optgroup> label="── TAX ──">
+                <optgroup> label="TAX">
   {serviceTypes['TAX'].map(s => <option key={s} value={s}>{s}</option>)}
 </optgroup>
-<optgroup label="── ACCOUNTING ──">
+<optgroup label="ACCOUNTING">
   {serviceTypes['ACCOUNTING'].map(s => <option key={s} value={s}>{s}</option>)}
 </optgroup>
-<optgroup label="── ADVISORY ──">
+<optgroup label="ADVISORY">
   {serviceTypes['ADVISORY'].map(s => <option key={s} value={s}>{s}</option>)}
 </optgroup>
               </select>
