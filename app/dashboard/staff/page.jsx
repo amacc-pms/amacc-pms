@@ -10,726 +10,818 @@ export default function StaffDashboard() {
   const [loading, setLoading] = useState(true)
   const [isBlocked, setIsBlocked] = useState(false)
   const [missedDate, setMissedDate] = useState('')
-  const [todayLogs, setTodayLogs] = useState({})
-  const [notes, setNotes] = useState({})
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
-  const [activeTab, setActiveTab] = useState('aktif')
-  const [unearnedRevenue, setUnearnedRevenue] = useState({ thisMonth: 0, allTime: 0, missedDays: 0 })
   const [selectedJob, setSelectedJob] = useState(null)
+  const [modalTab, setModalTab] = useState('detail')
   const [jobDetail, setJobDetail] = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [statusForm, setStatusForm] = useState({ status: '', progress_primary: 0, progress_secondary: 0, progress_de: 0 })
-  const [modalTab, setModalTab] = useState('detail')
   const [instructions, setInstructions] = useState([])
-  const [loadingInstructions, setLoadingInstructions] = useState(false)
-  const [newInstruction, setNewInstruction] = useState({ message: '', urgency: 'normal', instruction_type: 'instruction' })
-  const [postingInstruction, setPostingInstruction] = useState(false)
+  const [replyText, setReplyText] = useState({})
+  const [notifications, setNotifications] = useState([])
+  const [showBell, setShowBell] = useState(false)
+  const [searchText, setSearchText] = useState('')
+  const [filterService, setFilterService] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterMonth, setFilterMonth] = useState('')
+  const [filterDueMonth, setFilterDueMonth] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [monthlySummary, setMonthlySummary] = useState({ hoursLogged: 0, revenueEarned: 0, unearned: 0, daysLogged: 0, daysMissed: 0 })
+  const [todayLogs, setTodayLogs] = useState({})
+  const [todayNotes, setTodayNotes] = useState({})
+  const [todayLeave, setTodayLeave] = useState({})
+  const [blockLogs, setBlockLogs] = useState({})
+  const [blockNotes, setBlockNotes] = useState({})
+  const [blockLeave, setBlockLeave] = useState({})
   const router = useRouter()
 
   const today = new Date().toISOString().split('T')[0]
   const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
   useEffect(() => { checkAuth() }, [])
+  useEffect(() => { if (profile && jobs.length > 0) loadMonthlySummary() }, [selectedMonth, profile, jobs])
 
   async function checkAuth() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/'); return }
     const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (!prof) { router.push('/'); return }
-    if (!['staff', 'hoo', 'hoo_mp', 'ceo'].includes(prof.role)) { router.push('/'); return }
     setProfile(prof)
-    await checkHardBlock(prof)
-    await loadJobs(prof.id)
-    await calculateUnearned(prof.id)
-  }
-
-  async function checkHardBlock(prof) {
-    const now = new Date()
-    const hour = now.getHours()
-    if (hour < 10) return
-    const { data: activeJobs } = await supabase.from('jobs').select('id')
-      .or(`assigned_exec.eq.${prof.id},assigned_reviewer.eq.${prof.id},assigned_de.eq.${prof.id}`)
-      .not('status', 'eq', 'completed').limit(1)
-    if (!activeJobs || activeJobs.length === 0) return
-    const { data: yesterdayLog } = await supabase.from('timesheets').select('id')
-      .eq('staff_id', prof.id).eq('log_date', yesterday).limit(1)
-    if (!yesterdayLog || yesterdayLog.length === 0) {
-      await supabase.from('profiles').update({ is_blocked: true, blocked_since: new Date().toISOString() }).eq('id', prof.id)
-      setIsBlocked(true)
-      setMissedDate(yesterday)
-    }
-  }
-
-  async function loadJobs(staffId) {
-    const { data } = await supabase.from('jobs')
-      .select(`*, clients(company_name)`)
-      .or(`assigned_exec.eq.${staffId},assigned_reviewer.eq.${staffId},assigned_de.eq.${staffId}`)
-      .not('status', 'eq', 'completed').order('due_date')
-    setJobs(data || [])
-    const { data: logs } = await supabase.from('timesheets').select('*')
-      .eq('staff_id', staffId).eq('log_date', today)
-    const logsMap = {}
-    const notesMap = {}
-    logs?.forEach(l => { logsMap[l.job_id] = l.hours_logged; notesMap[l.job_id] = l.note || '' })
-    setTodayLogs(logsMap)
-    setNotes(notesMap)
+    await loadJobs(user.id)
+    await checkHardBlock(prof, user.id)
+    await loadNotifications(user.id)
     setLoading(false)
   }
 
-  async function calculateUnearned(staffId) {
-    const now = new Date()
-    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-    const { data: logs } = await supabase.from('timesheets').select('log_date')
-      .eq('staff_id', staffId).gte('log_date', firstOfMonth)
-    const loggedDates = new Set(logs?.map(l => l.log_date) || [])
-    let missedDays = 0
-    let d = new Date(firstOfMonth)
-    const yesterdayDate = new Date(yesterday)
-    while (d <= yesterdayDate) {
-      const dateStr = d.toISOString().split('T')[0]
-      const day = d.getDay()
-      if (day !== 0 && day !== 6 && !loggedDates.has(dateStr)) missedDays++
-      d.setDate(d.getDate() + 1)
-    }
-    const { data: activeJobs } = await supabase.from('jobs')
-      .select('id, invoice_value, assigned_exec, assigned_reviewer, assigned_de')
-      .or(`assigned_exec.eq.${staffId},assigned_reviewer.eq.${staffId},assigned_de.eq.${staffId}`)
+  async function loadJobs(userId) {
+    const { data } = await supabase
+      .from('jobs')
+      .select('*, clients(company_name, id)')
+      .or(`assigned_exec.eq.${userId},assigned_reviewer.eq.${userId},assigned_de.eq.${userId}`)
       .not('status', 'eq', 'completed')
-    let dailyRate = 0
-    activeJobs?.forEach(job => {
-      const invoiceVal = Number(job.invoice_value || 0)
-      if (job.assigned_exec === staffId) dailyRate += (invoiceVal * (job.assigned_de ? 0.75 : 0.80)) / 30
-      if (job.assigned_reviewer === staffId && job.assigned_reviewer !== job.assigned_exec) dailyRate += (invoiceVal * 0.20) / 30
-      if (job.assigned_de === staffId) dailyRate += (invoiceVal * 0.05) / 30
-    })
-    const unearned = dailyRate * missedDays
-    setUnearnedRevenue({ thisMonth: activeJobs?.length > 0 ? unearned : 0, allTime: activeJobs?.length > 0 ? unearned : 0, missedDays: activeJobs?.length > 0 ? missedDays : 0 })
+      .order('due_date', { ascending: true })
+    setJobs(data || [])
+    const initialLogs = {}
+    const initialNotes = {}
+    const initialLeave = {}
+    ;(data || []).forEach(j => { initialLogs[j.id] = ''; initialNotes[j.id] = ''; initialLeave[j.id] = '' })
+    setTodayLogs(initialLogs)
+    setTodayNotes(initialNotes)
+    setTodayLeave(initialLeave)
   }
 
-  async function openJobDetail(job) {
+  async function checkHardBlock(prof, userId) {
+    const now = new Date()
+    const hour = now.getHours()
+    if (hour < 10) return
+    const { data: activeJobs } = await supabase
+      .from('jobs')
+      .select('id')
+      .or(`assigned_exec.eq.${userId},assigned_reviewer.eq.${userId},assigned_de.eq.${userId}`)
+      .not('status', 'eq', 'completed')
+      .limit(1)
+    if (!activeJobs || activeJobs.length === 0) return
+    const { data: yesterdayLog } = await supabase
+      .from('timesheets')
+      .select('id')
+      .eq('staff_id', userId)
+      .eq('log_date', yesterday)
+      .limit(1)
+    if (!yesterdayLog || yesterdayLog.length === 0) {
+      setIsBlocked(true)
+      setMissedDate(yesterday)
+      const { data: blockedJobs } = await supabase
+        .from('jobs')
+        .select('*, clients(company_name)')
+        .or(`assigned_exec.eq.${userId},assigned_reviewer.eq.${userId},assigned_de.eq.${userId}`)
+        .not('status', 'eq', 'completed')
+      const bl = {}; const bn = {}; const blv = {}
+      ;(blockedJobs || []).forEach(j => { bl[j.id] = '0'; bn[j.id] = ''; blv[j.id] = '' })
+      setBlockLogs(bl); setBlockNotes(bn); setBlockLeave(blv)
+    }
+  }
+
+  async function saveBlockLog() {
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const entries = Object.keys(blockLogs).map(jobId => ({
+      staff_id: user.id,
+      job_id: jobId,
+      log_date: yesterday,
+      hours_logged: blockLeave[jobId] ? 0 : parseFloat(blockLogs[jobId] || 0),
+      note: blockLeave[jobId] ? blockLeave[jobId] : (blockNotes[jobId] || ''),
+      status: 'logged'
+    }))
+    for (const entry of entries) {
+      const { data: existing } = await supabase.from('timesheets').select('id').eq('staff_id', entry.staff_id).eq('job_id', entry.job_id).eq('log_date', entry.log_date).single()
+      if (existing) {
+        await supabase.from('timesheets').update({ hours_logged: entry.hours_logged, note: entry.note, status: 'logged' }).eq('id', existing.id)
+      } else {
+        await supabase.from('timesheets').insert(entry)
+      }
+    }
+    setIsBlocked(false)
+    setSaving(false)
+    setMessage('✅ Log semalam berjaya disimpan!')
+    setTimeout(() => setMessage(''), 3000)
+  }
+
+  async function saveTodayLog() {
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    let saved = 0
+    for (const jobId of Object.keys(todayLogs)) {
+      if (todayLogs[jobId] === '' && !todayLeave[jobId]) continue
+      const hours = todayLeave[jobId] ? 0 : parseFloat(todayLogs[jobId] || 0)
+      const note = todayLeave[jobId] ? todayLeave[jobId] : (todayNotes[jobId] || '')
+      const { data: existing } = await supabase.from('timesheets').select('id').eq('staff_id', user.id).eq('job_id', jobId).eq('log_date', today).single()
+      if (existing) {
+        await supabase.from('timesheets').update({ hours_logged: hours, note, status: 'logged' }).eq('id', existing.id)
+      } else {
+        await supabase.from('timesheets').insert({ staff_id: user.id, job_id: jobId, log_date: today, hours_logged: hours, note, status: 'logged' })
+      }
+      saved++
+    }
+    setSaving(false)
+    if (saved > 0) { setMessage('✅ Log hari ini berjaya disimpan!') } else { setMessage('⚠️ Tiada perubahan untuk disimpan') }
+    setTimeout(() => setMessage(''), 3000)
+  }
+
+  async function loadNotifications(userId) {
+    const notifs = []
+    const { data: unresolvedInstructions } = await supabase
+      .from('job_instructions')
+      .select('id, message, urgency_level, jobs(clients(company_name))')
+      .eq('assigned_to', userId)
+      .neq('status', 'resolved')
+    ;(unresolvedInstructions || []).forEach(i => {
+      notifs.push({ id: i.id, type: 'instruction', message: `📋 Instruction: ${i.jobs?.clients?.company_name} — ${i.message?.slice(0, 40)}...`, urgency: i.urgency_level, link: '/dashboard/staff/osm' })
+    })
+    const { data: dueSoonJobs } = await supabase
+      .from('jobs')
+      .select('id, due_date, clients(company_name)')
+      .or(`assigned_exec.eq.${userId},assigned_reviewer.eq.${userId}`)
+      .not('status', 'eq', 'completed')
+      .lte('due_date', new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0])
+      .gte('due_date', today)
+    ;(dueSoonJobs || []).forEach(j => {
+      const daysLeft = Math.ceil((new Date(j.due_date) - new Date()) / 86400000)
+      notifs.push({ id: `due_${j.id}`, type: 'due', message: `⏰ Due ${daysLeft} hari lagi: ${j.clients?.company_name}`, link: '/dashboard/staff' })
+    })
+    const { data: overdueJobs } = await supabase
+      .from('jobs')
+      .select('id, due_date, clients(company_name)')
+      .or(`assigned_exec.eq.${userId},assigned_reviewer.eq.${userId}`)
+      .not('status', 'eq', 'completed')
+      .lt('due_date', today)
+    ;(overdueJobs || []).forEach(j => {
+      notifs.push({ id: `overdue_${j.id}`, type: 'overdue', message: `🔴 OVERDUE: ${j.clients?.company_name}`, link: '/dashboard/staff' })
+    })
+    setNotifications(notifs)
+  }
+
+  async function loadJobDetail(job) {
+    setLoadingDetail(true)
     setSelectedJob(job)
     setModalTab('detail')
-    setLoadingDetail(true)
-    setStatusForm({ status: job.status || 'in_progress', progress_primary: job.completion_percentage || 0, progress_secondary: job.completion_secondary || 0, progress_de: job.completion_de || 0 })
-
-    const [execRes, reviewerRes, deRes, execHoursRes, reviewerHoursRes, deHoursRes] = await Promise.all([
-      job.assigned_exec ? supabase.from('profiles').select('full_name').eq('id', job.assigned_exec).single() : Promise.resolve({ data: null }),
-      job.assigned_reviewer ? supabase.from('profiles').select('full_name').eq('id', job.assigned_reviewer).single() : Promise.resolve({ data: null }),
-      job.assigned_de ? supabase.from('profiles').select('full_name').eq('id', job.assigned_de).single() : Promise.resolve({ data: null }),
-      job.assigned_exec ? supabase.from('timesheets').select('hours_logged').eq('job_id', job.id).eq('staff_id', job.assigned_exec) : Promise.resolve({ data: [] }),
-      job.assigned_reviewer ? supabase.from('timesheets').select('hours_logged').eq('job_id', job.id).eq('staff_id', job.assigned_reviewer) : Promise.resolve({ data: [] }),
-      job.assigned_de ? supabase.from('timesheets').select('hours_logged').eq('job_id', job.id).eq('staff_id', job.assigned_de) : Promise.resolve({ data: [] }),
-    ])
-
-    const sumHours = (data) => (data || []).reduce((sum, r) => sum + Number(r.hours_logged || 0), 0)
-    const execHours = sumHours(execHoursRes.data)
-    const reviewerHours = sumHours(reviewerHoursRes.data)
-    const deHours = sumHours(deHoursRes.data)
-    const totalHours = execHours + (job.assigned_reviewer !== job.assigned_exec ? reviewerHours : 0) + deHours
-
-    let pendingDays = 0, pendingLevel = null
-    if (job.status === 'pending_client' && job.updated_at) {
-      pendingDays = Math.floor((new Date() - new Date(job.updated_at)) / (1000 * 60 * 60 * 24))
-      if (pendingDays >= 30) pendingLevel = 'kiv'
-      else if (pendingDays >= 14) pendingLevel = 'red'
-      else if (pendingDays >= 7) pendingLevel = 'orange'
-      else if (pendingDays >= 3) pendingLevel = 'yellow'
-    }
-
-    setJobDetail({
-      execId: job.assigned_exec, reviewerId: job.assigned_reviewer, deId: job.assigned_de,
-      exec: execRes.data?.full_name || '-', reviewer: reviewerRes.data?.full_name || '-', de: deRes.data?.full_name || '-',
-      execHours, reviewerHours, deHours, totalHours, pendingDays, pendingLevel,
-      isSolo: job.assigned_exec === job.assigned_reviewer,
-    })
+    const { data: execProfile } = job.assigned_exec ? await supabase.from('profiles').select('full_name').eq('id', job.assigned_exec).single() : { data: null }
+    const { data: reviewerProfile } = job.assigned_reviewer ? await supabase.from('profiles').select('full_name').eq('id', job.assigned_reviewer).single() : { data: null }
+    const { data: deProfile } = job.assigned_de ? await supabase.from('profiles').select('full_name').eq('id', job.assigned_de).single() : { data: null }
+    const { data: timesheets } = await supabase.from('timesheets').select('*').eq('job_id', job.id).order('log_date', { ascending: false })
+    const execHours = (timesheets || []).filter(t => t.staff_id === job.assigned_exec).reduce((s, t) => s + (t.hours_logged || 0), 0)
+    const reviewerHours = (timesheets || []).filter(t => t.staff_id === job.assigned_reviewer).reduce((s, t) => s + (t.hours_logged || 0), 0)
+    const deHours = (timesheets || []).filter(t => t.staff_id === job.assigned_de).reduce((s, t) => s + (t.hours_logged || 0), 0)
+    const totalHours = execHours + reviewerHours + deHours
+    const isSolo = job.assigned_exec === job.assigned_reviewer
+    const { data: instrs } = await supabase.from('job_instructions').select('*, profiles(full_name)').eq('job_id', job.id).order('created_at', { ascending: false })
+    setInstructions(instrs || [])
+    setJobDetail({ execName: execProfile?.full_name, reviewerName: reviewerProfile?.full_name, deName: deProfile?.full_name, execHours, reviewerHours, deHours, totalHours, isSolo, timesheets: timesheets || [] })
+    setStatusForm({ status: job.status || 'in_progress', progress_primary: job.progress_primary || 0, progress_secondary: job.progress_secondary || 0, progress_de: job.progress_de || 0 })
     setLoadingDetail(false)
   }
 
-  async function loadInstructions(jobId) {
-    setLoadingInstructions(true)
-    const { data } = await supabase.from('job_instructions')
-      .select(`*, created_by_profile:profiles!job_instructions_created_by_fkey(full_name, role), resolved_by_profile:profiles!job_instructions_resolved_by_fkey(full_name)`)
-      .eq('job_id', jobId)
-      .order('created_at', { ascending: false })
-    setInstructions(data || [])
-    // Mark as read
-    if (profile && data) {
-      for (const inst of data) {
-        await supabase.from('instruction_reads').upsert({ instruction_id: inst.id, staff_id: profile.id }, { onConflict: 'instruction_id,staff_id' })
-      }
-    }
-    setLoadingInstructions(false)
-  }
-
-  async function postInstruction() {
-    if (!newInstruction.message.trim() || !selectedJob || !profile) return
-    setPostingInstruction(true)
-    const isHooOrCeo = ['hoo', 'hoo_mp', 'ceo'].includes(profile.role)
-    const instType = isHooOrCeo ? newInstruction.instruction_type : 'reply'
-
-    const { data: inst } = await supabase.from('job_instructions').insert({
-      job_id: selectedJob.id,
-      created_by: profile.id,
-      instruction_type: instType,
-      urgency: isHooOrCeo ? newInstruction.urgency : 'normal',
-      message: newInstruction.message.trim(),
-      status: 'open'
-    }).select().single()
-
-    // Send email for urgent/critical
-    if (inst && isHooOrCeo && ['urgent', 'critical'].includes(newInstruction.urgency)) {
-      const recipients = []
-      if (jobDetail?.execId) {
-        const { data: ep } = await supabase.from('profiles').select('email, full_name').eq('id', jobDetail.execId).single()
-        if (ep) recipients.push(ep)
-      }
-      if (jobDetail?.reviewerId && jobDetail.reviewerId !== jobDetail.execId) {
-        const { data: rp } = await supabase.from('profiles').select('email, full_name').eq('id', jobDetail.reviewerId).single()
-        if (rp) recipients.push(rp)
-      }
-      if (jobDetail?.deId) {
-        const { data: dp } = await supabase.from('profiles').select('email, full_name').eq('id', jobDetail.deId).single()
-        if (dp) recipients.push(dp)
-      }
-      // Trigger email via API
-      await fetch('/api/send-instruction-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          recipients, urgency: newInstruction.urgency,
-          message: newInstruction.message,
-          jobName: selectedJob.clients?.company_name,
-          serviceType: selectedJob.service_type,
-          senderName: profile.full_name
-        })
-      })
-    }
-
-    setNewInstruction({ message: '', urgency: 'normal', instruction_type: 'instruction' })
-    await loadInstructions(selectedJob.id)
-    setPostingInstruction(false)
-  }
-
-  async function resolveInstruction(instructionId) {
-    if (!profile) return
-    await supabase.from('job_instructions').update({
-      status: 'resolved', resolved_by: profile.id, resolved_at: new Date().toISOString()
-    }).eq('id', instructionId)
-    await loadInstructions(selectedJob.id)
-  }
-
-  async function reopenInstruction(instructionId) {
-    await supabase.from('job_instructions').update({ status: 'reopened', resolved_by: null, resolved_at: null }).eq('id', instructionId)
-    await loadInstructions(selectedJob.id)
-  }
-
   async function updateJobStatus() {
-    if (!selectedJob || !profile) return
+    if (!selectedJob) return
     setUpdatingStatus(true)
-    await supabase.from('jobs').update({
-      status: statusForm.status, completion_percentage: statusForm.progress_primary,
-      completion_secondary: statusForm.progress_secondary, completion_de: statusForm.progress_de,
-      updated_at: new Date().toISOString(),
-    }).eq('id', selectedJob.id)
-    setMessage('Γ£à Status job berjaya dikemaskini!')
-    setSelectedJob(null); setJobDetail(null)
-    await loadJobs(profile.id)
+    const { data: { user } } = await supabase.auth.getUser()
+    const isExec = selectedJob.assigned_exec === user.id
+    const isReviewer = selectedJob.assigned_reviewer === user.id
+    const isDe = selectedJob.assigned_de === user.id
+    const updates = { status: statusForm.status }
+    if (isExec) updates.progress_primary = statusForm.progress_primary
+    if (isReviewer && !jobDetail?.isSolo) updates.progress_secondary = statusForm.progress_secondary
+    if (isDe) updates.progress_de = statusForm.progress_de
+    await supabase.from('jobs').update(updates).eq('id', selectedJob.id)
+    setJobs(prev => prev.map(j => j.id === selectedJob.id ? { ...j, ...updates } : j))
     setUpdatingStatus(false)
+    setMessage('✅ Status berjaya dikemaskini!')
     setTimeout(() => setMessage(''), 3000)
   }
 
-  async function saveTimesheets() {
+  async function sendReply(instrId) {
+    if (!replyText[instrId]?.trim()) return
+    const { data: { user } } = await supabase.auth.getUser()
+    await supabase.from('instruction_replies').insert({ instruction_id: instrId, sender_id: user.id, message: replyText[instrId] })
+    setReplyText(prev => ({ ...prev, [instrId]: '' }))
+    loadJobDetail(selectedJob)
+  }
+
+  async function loadMonthlySummary() {
     if (!profile) return
-    setSaving(true)
-    for (const job of jobs.filter(j => !['completed','kiv'].includes(j.status))) {
-      await supabase.from('timesheets').upsert({
-        staff_id: profile.id, job_id: job.id, log_date: today,
-        hours_logged: Number(todayLogs[job.id] || 0), note: notes[job.id] || '', status: job.status
-      }, { onConflict: 'staff_id,job_id,log_date' })
-    }
-    if (isBlocked) {
-      await supabase.from('profiles').update({ is_blocked: false, unblocked_at: new Date().toISOString() }).eq('id', profile.id)
-      setIsBlocked(false)
-    }
-    setMessage('Γ£à Timesheet berjaya disimpan!')
-    setTimeout(() => setMessage(''), 3000)
-    setSaving(false)
+    const { data: logs } = await supabase
+      .from('timesheets')
+      .select('*, jobs(invoice_value, assigned_exec, assigned_reviewer, assigned_de)')
+      .eq('staff_id', profile.id)
+      .gte('log_date', `${selectedMonth}-01`)
+      .lte('log_date', `${selectedMonth}-31`)
+    const hoursLogged = (logs || []).reduce((s, l) => s + (l.hours_logged || 0), 0)
+    const daysLogged = new Set((logs || []).map(l => l.log_date)).size
+    let revenueEarned = 0
+    ;(logs || []).forEach(log => {
+      const job = log.jobs
+      if (!job) return
+      const isExec = job.assigned_exec === profile.id
+      const isReviewer = job.assigned_reviewer === profile.id
+      const isDe = job.assigned_de === profile.id
+      const isSolo = job.assigned_exec === job.assigned_reviewer
+      const pct = isExec ? (isSolo ? 0.8 : 0.75) : isReviewer ? 0.2 : isDe ? 0.05 : 0
+      revenueEarned += ((job.invoice_value || 0) / 30) * pct * (log.hours_logged || 0) / 8
+    })
+    const workingDays = 22
+    const daysMissed = Math.max(0, workingDays - daysLogged)
+    const dailyRate = revenueEarned / Math.max(daysLogged, 1)
+    const unearned = dailyRate * daysMissed
+    setMonthlySummary({ hoursLogged: hoursLogged.toFixed(1), revenueEarned: revenueEarned.toFixed(2), unearned: unearned.toFixed(2), daysLogged, daysMissed })
   }
 
-  const getStatusLabel = (s) => ({ not_started: 'ΓÜ¬ Belum Mula', in_progress: '≡ƒö╡ Dalam Proses', pending_client: '≡ƒƒí Pending Client', pending_authority: '≡ƒƒá Pending LHDN/Auditor', completed: 'Γ£à Selesai', kiv: '≡ƒôî KIV' }[s] || s)
+  const serviceTypes = [...new Set(jobs.map(j => j.service_type).filter(Boolean))]
 
-  const getPendingAlert = (level, days) => {
-    if (!level) return null
-    const c = { yellow: { bg: 'bg-yellow-50', border: 'border-yellow-300', text: 'text-yellow-700', label: `ΓÜá∩╕Å Pending Client ${days} hari ΓÇö Follow up segera!` }, orange: { bg: 'bg-orange-50', border: 'border-orange-300', text: 'text-orange-700', label: `≡ƒö╢ Pending Client ${days} hari ΓÇö Urgent!` }, red: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-700', label: `≡ƒÜ¿ Pending Client ${days} hari ΓÇö Kritikal! Maklumkan HOO!` }, kiv: { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-700', label: `≡ƒôî Pending Client ${days} hari ΓÇö Akan masuk KIV` } }[level]
-    return <div className={`${c.bg} border ${c.border} rounded-lg p-3 mb-4`}><p className={`text-sm font-medium ${c.text}`}>{c.label}</p></div>
+  const filteredJobs = jobs.filter(job => {
+    const matchSearch = searchText === '' || job.clients?.company_name?.toLowerCase().includes(searchText.toLowerCase())
+    const matchService = filterService === '' || job.service_type === filterService
+    const matchStatus = filterStatus === '' || job.status === filterStatus
+    const matchMonth = filterMonth === '' || (job.date_assign && job.date_assign.startsWith(filterMonth))
+    const matchDueMonth = filterDueMonth === '' || (job.due_date && job.due_date.startsWith(filterDueMonth))
+    return matchSearch && matchService && matchStatus && matchMonth && matchDueMonth
+  })
+
+  const overdueJobs = filteredJobs.filter(j => j.due_date && j.due_date < today)
+  const activeJobs = filteredJobs.filter(j => !j.due_date || j.due_date >= today)
+
+  const statusLabel = (s) => {
+    const map = { not_started: '⚪ Belum Mula', in_progress: '🔵 Dalam Proses', pending_client: '🟡 Pending Client', pending_authority: '🟠 Pending LHDN', kiv: '📌 KIV', completed: '✅ Selesai' }
+    return map[s] || s
   }
 
-  const getUrgencyBadge = (urgency) => ({
-    normal: <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">≡ƒƒó Normal</span>,
-    urgent: <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">≡ƒƒí Urgent</span>,
-    critical: <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">≡ƒö┤ Kritikal</span>,
-  }[urgency] || null)
+  const statusColor = (s) => {
+    const map = { not_started: '#94a3b8', in_progress: '#3b82f6', pending_client: '#f59e0b', pending_authority: '#f97316', kiv: '#8b5cf6', completed: '#10b981' }
+    return map[s] || '#94a3b8'
+  }
 
-  const getTypeBadge = (type) => ({
-    instruction: <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">≡ƒôó Instruction</span>,
-    reply: <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">≡ƒÆ¼ Reply</span>,
-    update: <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">≡ƒöä Update</span>,
-  }[type] || null)
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 40 }}>⏳</div>
+        <p style={{ color: '#64748b', marginTop: 8 }}>Memuatkan dashboard...</p>
+      </div>
+    </div>
+  )
 
-  const isHooOrCeo = profile && ['hoo', 'hoo_mp', 'ceo'].includes(profile.role)
-  const isExec = jobDetail && profile && jobDetail.execId === profile.id
-  const canEditExec = isExec
-  const canEditReviewer = jobDetail && profile && jobDetail.reviewerId === profile.id && !jobDetail.isSolo
-  const canEditDe = jobDetail && profile && jobDetail.deId === profile.id
+  // HARD BLOCK SCREEN
+  if (isBlocked) return (
+    <div style={{ minHeight: '100vh', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'white', borderRadius: 20, padding: 28, maxWidth: 600, width: '100%', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ fontSize: 48 }}>🔒</div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#dc2626', margin: '8px 0 4px' }}>Timesheet Belum Dikemaskini</h1>
+          <p style={{ color: '#64748b', fontSize: 14 }}>Log jam kerja semalam ({missedDate}) dahulu untuk teruskan</p>
+        </div>
+        {message && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#166534', fontSize: 14 }}>{message}</div>}
+        <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 12 }}>ISI JAM KERJA SEMALAM — {missedDate}</p>
+          {Object.keys(blockLogs).map(jobId => {
+            const job = jobs.find(j => j.id === jobId)
+            if (!job) return null
+            return (
+              <div key={jobId} style={{ background: 'white', borderRadius: 10, padding: 12, marginBottom: 10, border: '1px solid #e2e8f0' }}>
+                <p style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', margin: '0 0 8px' }}>{job.clients?.company_name} — {job.invoice_number}</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Jam Kerja</label>
+                    <input type="number" value={blockLogs[jobId]} onChange={e => setBlockLogs(p => ({ ...p, [jobId]: e.target.value }))}
+                      min="0" max="24" step="0.5" placeholder="0"
+                      style={{ width: '100%', padding: '6px 8px', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', marginTop: 4 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Cuti/MC/PH</label>
+                    <select value={blockLeave[jobId]} onChange={e => setBlockLeave(p => ({ ...p, [jobId]: e.target.value }))}
+                      style={{ width: '100%', padding: '6px 8px', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', marginTop: 4 }}>
+                      <option value="">-</option>
+                      <option value="Cuti">Cuti</option>
+                      <option value="MC">MC</option>
+                      <option value="PH">PH</option>
+                      <option value="Outstation">Outstation</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Nota</label>
+                    <input type="text" value={blockNotes[jobId]} onChange={e => setBlockNotes(p => ({ ...p, [jobId]: e.target.value }))}
+                      placeholder="Apa yang dibuat..."
+                      style={{ width: '100%', padding: '6px 8px', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', marginTop: 4 }} />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <button onClick={saveBlockLog} disabled={saving}
+          style={{ width: '100%', background: saving ? '#94a3b8' : '#dc2626', color: 'white', border: 'none', borderRadius: 12, padding: '14px', fontSize: 15, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+          {saving ? '⏳ Menyimpan...' : '✅ Simpan & Buka Dashboard'}
+        </button>
+      </div>
+    </div>
+  )
 
-  const openInstructionsCount = instructions.filter(i => i.status === 'open' && i.instruction_type === 'instruction').length
-
-  if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="text-gray-500">Loading...</div></div>
-
-  if (isBlocked) {
-    return (
-      <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
-          <div className="text-6xl mb-4">≡ƒöÆ</div>
-          <h1 className="text-2xl font-bold text-red-600 mb-2">Timesheet Belum Dikemaskini!</h1>
-          <p className="text-gray-600 mb-2">Awak belum log hours untuk:</p>
-          <p className="text-lg font-bold text-red-500 mb-6">{new Date(missedDate).toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          <button onClick={() => setIsBlocked(false)} className="w-full bg-red-500 text-white py-3 rounded-lg font-medium hover:bg-red-600 mb-3">≡ƒô¥ Log Timesheet Sekarang</button>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="w-full bg-gray-100 text-gray-600 py-2 rounded-lg text-sm">Log Keluar</button>
+  // MAIN DASHBOARD
+  return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
+      {/* TOP NAV */}
+      <div style={{ background: 'white', borderBottom: '1px solid #e2e8f0', padding: '12px 16px', position: 'sticky', top: 0, zIndex: 100 }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h1 style={{ fontSize: 16, fontWeight: 800, color: '#1e293b', margin: 0 }}>AMACC PMS</h1>
+            <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>{profile?.full_name} • {profile?.division}</p>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {/* NOTIFICATION BELL */}
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowBell(!showBell)}
+                style={{ background: notifications.length > 0 ? '#fef2f2' : '#f1f5f9', border: 'none', borderRadius: 10, padding: '8px 12px', cursor: 'pointer', fontSize: 18, position: 'relative' }}>
+                🔔
+                {notifications.length > 0 && (
+                  <span style={{ position: 'absolute', top: -4, right: -4, background: '#dc2626', color: 'white', borderRadius: '50%', width: 18, height: 18, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+              {showBell && (
+                <div style={{ position: 'absolute', right: 0, top: '110%', background: 'white', borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.15)', width: 300, zIndex: 200, overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                    🔔 Notifikasi ({notifications.length})
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Tiada notifikasi</div>
+                  ) : (
+                    notifications.map((n, i) => (
+                      <div key={i} onClick={() => { router.push(n.link); setShowBell(false) }}
+                        style={{ padding: '10px 16px', borderBottom: '1px solid #f8fafc', cursor: 'pointer', fontSize: 12, color: '#374151', background: n.type === 'overdue' ? '#fef2f2' : n.type === 'due' ? '#fffbeb' : 'white' }}>
+                        {n.message}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <button onClick={() => router.push('/dashboard/staff/osm')}
+              style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569' }}>
+              📋 OSM
+            </button>
+            <button onClick={async () => { await supabase.auth.signOut(); router.push('/') }}
+              style={{ background: '#fee2e2', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#dc2626' }}>
+              Keluar
+            </button>
+          </div>
         </div>
       </div>
-    )
-  }
 
-  const aktifJobs = jobs.filter(j => !['completed','kiv'].includes(j.status))
-  const kivJobs = jobs.filter(j => j.status === 'kiv')
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center">
-        <div>
-          <div className="font-bold text-lg">AMACC PMS</div>
-          <div className="text-sm opacity-80">Staff Dashboard</div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/dashboard/staff/osm')} className="bg-purple-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-purple-400">≡ƒôï OSM</button>
-          <span className="text-sm">{profile?.full_name}</span>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="bg-white text-blue-600 px-3 py-1 rounded text-sm font-medium">Log Keluar</button>
-        </div>
-      </nav>
-
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="mb-4">
-          <h1 className="text-xl font-bold text-gray-800">Selamat Datang, {profile?.full_name}!</h1>
-          <p className="text-sm text-gray-500">Hari ini: {new Date().toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-white rounded-lg border p-3"><div className="text-xs text-gray-500">Jobs Aktif</div><div className="text-2xl font-bold text-blue-600">{aktifJobs.length}</div></div>
-          <div className="bg-white rounded-lg border p-3"><div className="text-xs text-gray-500">Overdue</div><div className="text-2xl font-bold text-red-500">{jobs.filter(j => j.due_date && new Date(j.due_date) < new Date()).length}</div></div>
-          <div className="bg-white rounded-lg border p-3"><div className="text-xs text-gray-500">Unearned Bulan Ini</div><div className="text-lg font-bold text-orange-500">RM {unearnedRevenue.thisMonth.toFixed(2)}</div><div className="text-xs text-gray-400">{unearnedRevenue.missedDays} hari tak log</div></div>
-          <div className="bg-white rounded-lg border p-3"><div className="text-xs text-gray-500">Jam Hari Ini</div><div className="text-lg font-bold text-green-600">{Object.values(todayLogs).reduce((a,b) => a + Number(b), 0)} jam</div></div>
-        </div>
-
-        {unearnedRevenue.missedDays > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-            <p className="text-orange-700 font-medium">ΓÜá∩╕Å {unearnedRevenue.missedDays} hari bulan ini tiada timesheet</p>
-            <p className="text-orange-600 text-sm">Anggaran revenue tidak dikira: <strong>RM {unearnedRevenue.thisMonth.toFixed(2)}</strong></p>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 16px' }}>
+        {message && (
+          <div style={{ background: message.includes('✅') ? '#f0fdf4' : '#fffbeb', border: `1px solid ${message.includes('✅') ? '#bbf7d0' : '#fde68a'}`, borderRadius: 10, padding: '10px 16px', marginBottom: 16, color: message.includes('✅') ? '#166534' : '#92400e', fontSize: 14 }}>
+            {message}
           </div>
         )}
 
-        {message && <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-green-700">{message}</div>}
-
-        <div className="flex gap-2 mb-4">
-          <button onClick={() => setActiveTab('aktif')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'aktif' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>Aktif ({aktifJobs.length})</button>
-          <button onClick={() => setActiveTab('timesheet')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'timesheet' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>≡ƒô¥ Log Hari Ini</button>
-          <button onClick={() => setActiveTab('kiv')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'kiv' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>KIV ({kivJobs.length})</button>
-        </div>
-
-        {activeTab === 'aktif' && (
-          <div className="space-y-4">
-            {aktifJobs.length === 0 ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs aktif</div>
-            : aktifJobs.map(job => (
-              <div key={job.id} className="bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer" onClick={() => openJobDetail(job)}>
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="font-bold text-blue-600">{job.clients?.company_name}</h3>
-                    <p className="text-sm text-gray-500">{job.invoice_number} ΓÇó {job.service_type}</p>
-                    <p className="text-green-600 font-bold text-sm">RM {Number(job.invoice_value || 0).toLocaleString()}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs text-gray-500">Due: {job.due_date ? new Date(job.due_date).toLocaleDateString('ms-MY') : '-'}</span>
-                    {job.due_date && new Date(job.due_date) < new Date() && <div className="text-xs text-red-500 font-medium">ΓÜá∩╕Å OVERDUE</div>}
-                    <div className="mt-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded">Lihat Detail ΓåÆ</div>
-                  </div>
-                </div>
-                {job.job_description && <div className="bg-gray-50 rounded p-2 text-sm text-gray-600">≡ƒôï {job.job_description}</div>}
-                {job.completion_percentage > 0 && (
-                  <div className="mt-2">
-                    <div className="w-full bg-gray-200 rounded-full h-1.5">
-                      <div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${job.completion_percentage}%`}}></div>
-                    </div>
-                    <span className="text-xs text-gray-500">{job.completion_percentage}% siap</span>
-                  </div>
-                )}
+        {/* MONTHLY SUMMARY */}
+        <div style={{ background: 'white', borderRadius: 16, padding: 20, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', margin: 0 }}>📊 Summary Bulanan</h2>
+            <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+              style={{ padding: '6px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            {[
+              { label: 'Jam Logged', value: `${monthlySummary.hoursLogged} jam`, color: '#3b82f6', bg: '#eff6ff' },
+              { label: 'Revenue Earned', value: `RM ${parseFloat(monthlySummary.revenueEarned).toLocaleString('ms-MY', { minimumFractionDigits: 2 })}`, color: '#10b981', bg: '#f0fdf4' },
+              { label: 'Unearned', value: `RM ${parseFloat(monthlySummary.unearned).toLocaleString('ms-MY', { minimumFractionDigits: 2 })}`, color: '#ef4444', bg: '#fef2f2' },
+              { label: 'Hari Log', value: `${monthlySummary.daysLogged} hari`, color: '#8b5cf6', bg: '#faf5ff' },
+            ].map((s, i) => (
+              <div key={i} style={{ background: s.bg, borderRadius: 12, padding: 14, textAlign: 'center' }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{s.label}</div>
               </div>
             ))}
           </div>
-        )}
+        </div>
 
-        {activeTab === 'timesheet' && (
-          <div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-              <p className="text-blue-700 text-sm">≡ƒô¥ Update jam untuk job yang awak buat hari ni sahaja.</p>
+        {/* SEARCH & FILTER */}
+        <div style={{ background: 'white', borderRadius: 16, padding: 16, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Cari Client</label>
+              <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)}
+                placeholder="Nama client..."
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
             </div>
-            <div className="space-y-3">
-              {aktifJobs.map(job => (
-                <div key={job.id} className="bg-white rounded-lg border p-4">
-                  <div className="flex justify-between items-center mb-2">
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Service Type</label>
+              <select value={filterService} onChange={e => setFilterService(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}>
+                <option value="">Semua</option>
+                {serviceTypes.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Status</label>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}>
+                <option value="">Semua</option>
+                <option value="in_progress">🔵 Dalam Proses</option>
+                <option value="pending_client">🟡 Pending Client</option>
+                <option value="pending_authority">🟠 Pending LHDN</option>
+                <option value="kiv">📌 KIV</option>
+                <option value="not_started">⚪ Belum Mula</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Bulan Assign</label>
+              <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Due Date (Bulan)</label>
+              <input type="month" value={filterDueMonth} onChange={e => setFilterDueMonth(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+            </div>
+          </div>
+          {(searchText || filterService || filterStatus || filterMonth || filterDueMonth) && (
+            <button onClick={() => { setSearchText(''); setFilterService(''); setFilterStatus(''); setFilterMonth(''); setFilterDueMonth('') }}
+              style={{ marginTop: 10, background: '#fee2e2', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>
+              ✕ Clear Filter
+            </button>
+          )}
+        </div>
+
+        {/* LOG HARI INI */}
+        <div style={{ background: 'white', borderRadius: 16, padding: 20, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', margin: 0 }}>⏱️ Log Hari Ini — {today}</h2>
+            <button onClick={saveTodayLog} disabled={saving}
+              style={{ background: saving ? '#94a3b8' : '#3b82f6', color: 'white', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+              {saving ? '⏳...' : '💾 Simpan Semua'}
+            </button>
+          </div>
+          {jobs.length === 0 ? (
+            <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>Tiada job aktif</p>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {jobs.map(job => (
+                <div key={job.id} style={{ background: '#f8fafc', borderRadius: 10, padding: 12, border: '1px solid #e2e8f0' }}>
+                  <p style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', margin: '0 0 8px' }}>
+                    {job.clients?.company_name} <span style={{ color: '#94a3b8', fontWeight: 400 }}>— {job.invoice_number}</span>
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 8 }}>
                     <div>
-                      <p className="font-medium text-sm">{job.clients?.company_name}</p>
-                      <p className="text-xs text-gray-500">{job.invoice_number} ΓÇó {job.service_type}</p>
+                      <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Jam Kerja</label>
+                      <input type="number" value={todayLogs[job.id] || ''} onChange={e => setTodayLogs(p => ({ ...p, [job.id]: e.target.value }))}
+                        min="0" max="24" step="0.5" placeholder="0"
+                        style={{ width: '100%', padding: '6px 8px', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', marginTop: 4 }} />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input type="number" min="0" max="12" step="0.5" value={todayLogs[job.id] || 0}
-                        onChange={e => setTodayLogs({...todayLogs, [job.id]: e.target.value})}
-                        className="w-16 border rounded px-2 py-1 text-center text-sm" />
-                      <span className="text-xs text-gray-500">jam</span>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Cuti/MC/PH</label>
+                      <select value={todayLeave[job.id] || ''} onChange={e => setTodayLeave(p => ({ ...p, [job.id]: e.target.value }))}
+                        style={{ width: '100%', padding: '6px 8px', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', marginTop: 4 }}>
+                        <option value="">-</option>
+                        <option value="Cuti">Cuti</option>
+                        <option value="MC">MC</option>
+                        <option value="PH">PH</option>
+                        <option value="Outstation">Outstation</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Nota Kerja</label>
+                      <input type="text" value={todayNotes[job.id] || ''} onChange={e => setTodayNotes(p => ({ ...p, [job.id]: e.target.value }))}
+                        placeholder="Apa yang dibuat hari ni..."
+                        style={{ width: '100%', padding: '6px 8px', border: '1.5px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', marginTop: 4 }} />
                     </div>
                   </div>
-                  {Number(todayLogs[job.id]) > 0 && (
-                    <input type="text" placeholder="Nota kerja (optional)" value={notes[job.id] || ''}
-                      onChange={e => setNotes({...notes, [job.id]: e.target.value})}
-                      className="w-full border rounded px-3 py-1 text-sm mt-1" />
-                  )}
                 </div>
               ))}
             </div>
-            <button onClick={saveTimesheets} disabled={saving} className="w-full mt-4 bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50">
-              {saving ? 'Menyimpan...' : '≡ƒÆ╛ Simpan Semua Timesheet'}
-            </button>
-          </div>
-        )}
+          )}
+        </div>
 
-        {activeTab === 'kiv' && (
-          <div className="space-y-3">
-            {kivJobs.length === 0 ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs KIV</div>
-            : kivJobs.map(job => (
-              <div key={job.id} onClick={() => openJobDetail(job)} className="bg-white rounded-lg border border-yellow-200 p-4 cursor-pointer hover:shadow-sm">
-                <h3 className="font-bold text-blue-600">{job.clients?.company_name}</h3>
-                <p className="text-sm text-gray-500">{job.invoice_number} ΓÇó {job.service_type}</p>
-                <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">KIV</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* JOB LIST */}
+        <div style={{ background: 'white', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', margin: '0 0 16px' }}>
+            📁 Senarai Job ({filteredJobs.length})
+          </h2>
+
+          {overdueJobs.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>🔴 OVERDUE ({overdueJobs.length})</p>
+              {overdueJobs.map(job => <JobCard key={job.id} job={job} profile={profile} onClick={() => loadJobDetail(job)} today={today} statusLabel={statusLabel} statusColor={statusColor} />)}
+            </div>
+          )}
+
+          {activeJobs.length === 0 && overdueJobs.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
+              <div style={{ fontSize: 40 }}>📭</div>
+              <p style={{ marginTop: 8 }}>Tiada job dijumpai</p>
+            </div>
+          ) : (
+            activeJobs.map(job => <JobCard key={job.id} job={job} profile={profile} onClick={() => loadJobDetail(job)} today={today} statusLabel={statusLabel} statusColor={statusColor} />)
+          )}
+        </div>
       </div>
 
-      {/* FULLSCREEN MODAL */}
+      {/* JOB DETAIL MODAL */}
       {selectedJob && (
-        <div className="fixed inset-0 bg-white z-50 overflow-y-auto">
-          {/* Header */}
-          <div className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-10">
-            <div>
-              <h2 className="text-xl font-bold">{selectedJob.clients?.company_name}</h2>
-              <p className="text-blue-200 text-sm">{selectedJob.invoice_number} ΓÇó {selectedJob.service_type}</p>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, overflow: 'auto' }} onClick={e => { if (e.target === e.currentTarget) setSelectedJob(null) }}>
+          <div style={{ background: 'white', minHeight: '100vh', maxWidth: '100%', width: '100%', margin: '0 auto' }}>
+            {/* Modal Header */}
+            <div style={{ background: '#1e293b', color: 'white', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{selectedJob.clients?.company_name}</h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>{selectedJob.invoice_number} • {selectedJob.service_type}</p>
+              </div>
+              <button onClick={() => setSelectedJob(null)}
+                style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '8px 16px', color: 'white', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                ✕ Tutup
+              </button>
             </div>
-            <button onClick={() => { setSelectedJob(null); setJobDetail(null) }} className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50">Γ£ò Tutup</button>
-          </div>
 
-          {/* Modal Tabs */}
-          <div className="bg-gray-100 px-6 flex gap-2 sticky top-16 z-10 border-b">
-            <button onClick={() => setModalTab('detail')} className={`px-5 py-3 text-sm font-medium border-b-2 transition-all ${modalTab === 'detail' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              ≡ƒôï Detail & Status
-            </button>
-            <button onClick={() => { setModalTab('instructions'); loadInstructions(selectedJob.id) }}
-              className={`px-5 py-3 text-sm font-medium border-b-2 transition-all flex items-center gap-2 ${modalTab === 'instructions' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              ≡ƒôó Instructions
-              {openInstructionsCount > 0 && <span className="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{openInstructionsCount}</span>}
-            </button>
-          </div>
+            {/* Modal Tabs */}
+            <div style={{ borderBottom: '2px solid #f1f5f9', padding: '0 20px', background: 'white', display: 'flex', gap: 4 }}>
+              {[
+                { id: 'detail', label: '📋 Detail & Status' },
+                { id: 'logtoday', label: '⏱️ Log Hari Ini' },
+                { id: 'instructions', label: `📢 Instructions ${instructions.length > 0 ? `(${instructions.length})` : ''}` },
+              ].map(tab => (
+                <button key={tab.id} onClick={() => setModalTab(tab.id)}
+                  style={{ background: 'none', border: 'none', borderBottom: modalTab === tab.id ? '3px solid #3b82f6' : '3px solid transparent', padding: '14px 16px', cursor: 'pointer', fontSize: 13, fontWeight: modalTab === tab.id ? 700 : 500, color: modalTab === tab.id ? '#3b82f6' : '#64748b', marginBottom: -2 }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-          <div className="max-w-4xl mx-auto p-6">
+            <div style={{ padding: 20, maxWidth: 900, margin: '0 auto' }}>
+              {loadingDetail ? (
+                <div style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>⏳ Memuatkan...</div>
+              ) : (
 
-            {/* ===== DETAIL TAB ===== */}
-            {modalTab === 'detail' && (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                    <p className="text-xs text-green-500 font-medium">Invoice Value</p>
-                    <p className="text-xl font-bold text-green-700">RM {Number(selectedJob.invoice_value || 0).toLocaleString()}</p>
-                  </div>
-                  <div className={`rounded-xl p-4 border ${selectedJob.due_date && new Date(selectedJob.due_date) < new Date() ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
-                    <p className="text-xs text-gray-500 font-medium">Due Date</p>
-                    <p className="font-bold text-gray-800">{selectedJob.due_date ? new Date(selectedJob.due_date).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}</p>
-                    {selectedJob.due_date && new Date(selectedJob.due_date) < new Date() && <p className="text-xs text-red-500 font-bold mt-1">ΓÜá∩╕Å OVERDUE</p>}
-                  </div>
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                    <p className="text-xs text-gray-500 font-medium">Financial Year End</p>
-                    <p className="font-bold text-gray-800">{selectedJob.financial_year_end || '-'}</p>
-                  </div>
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                    <p className="text-xs text-gray-500 font-medium">Budget Hours</p>
-                    <p className="font-bold text-gray-800">{selectedJob.budgeted_hours || '-'} jam</p>
-                  </div>
-                </div>
-
-                {selectedJob.job_description && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-                    <p className="text-xs text-blue-500 font-bold mb-2">≡ƒôï SKOP KERJA</p>
-                    <p className="text-blue-900">{selectedJob.job_description}</p>
-                  </div>
-                )}
-
-                {jobDetail && getPendingAlert(jobDetail.pendingLevel, jobDetail.pendingDays)}
-
-                {loadingDetail ? <div className="text-center py-12 text-gray-400">ΓÅ│ Loading...</div>
-                : jobDetail && (
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {/* Team & Hours */}
-                    <div>
-                      <h3 className="font-bold text-gray-700 text-lg mb-4">≡ƒæÑ Team & Hours</h3>
-                      <div className="space-y-3">
-                        {/* EXEC */}
-                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                          <div className="flex justify-between items-start mb-3">
-                            <div>
-                              <p className="text-xs text-blue-500 font-bold">EXEC {jobDetail.isSolo ? '(SOLO)' : ''}</p>
-                              <p className="font-bold text-gray-800">{jobDetail.exec}</p>
-                              <p className="text-xs text-blue-600">{jobDetail.isSolo ? '80%' : '75%'} revenue</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xs text-gray-500">Hours logged</p>
-                              <p className="text-xl font-bold text-blue-600">{jobDetail.execHours.toFixed(1)}</p>
-                              <p className="text-xs text-gray-400">jam</p>
-                            </div>
-                          </div>
-                          <div className="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>Progress (Primary)</span>
-                            <span className="font-bold text-blue-600">{statusForm.progress_primary}%</span>
-                          </div>
-                          <input type="range" min="0" max="100" step="5" value={statusForm.progress_primary}
-                            onChange={e => canEditExec && setStatusForm({...statusForm, progress_primary: Number(e.target.value)})}
-                            disabled={!canEditExec} className={`w-full accent-blue-500 ${!canEditExec ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`} />
-                          <div className="w-full bg-blue-200 rounded-full h-2 mt-1">
-                            <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_primary}%`}}></div>
-                          </div>
-                          {!canEditExec && <p className="text-xs text-gray-400 mt-1">≡ƒöÆ Hanya Exec boleh edit</p>}
+                // TAB: DETAIL & STATUS
+                modalTab === 'detail' ? (
+                  <div>
+                    {/* Info Cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+                      {[
+                        { label: 'Invoice Value', value: `RM ${(selectedJob.invoice_value || 0).toLocaleString('ms-MY', { minimumFractionDigits: 2 })}`, color: '#10b981' },
+                        { label: 'Due Date', value: selectedJob.due_date ? new Date(selectedJob.due_date).toLocaleDateString('ms-MY') : '-', color: selectedJob.due_date < today ? '#dc2626' : '#3b82f6' },
+                        { label: 'Financial Year End', value: selectedJob.financial_year_end || '-', color: '#8b5cf6' },
+                        { label: 'Budget Hours', value: `${selectedJob.budgeted_hours || 0} jam`, color: '#f59e0b' },
+                      ].map((c, i) => (
+                        <div key={i} style={{ background: '#f8fafc', borderRadius: 12, padding: 14 }}>
+                          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{c.label}</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: c.color }}>{c.value}</div>
                         </div>
-
-                        {/* REVIEWER */}
-                        {!jobDetail.isSolo && (
-                          <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                            <div className="flex justify-between items-start mb-3">
-                              <div>
-                                <p className="text-xs text-green-500 font-bold">REVIEWER</p>
-                                <p className="font-bold text-gray-800">{jobDetail.reviewer}</p>
-                                <p className="text-xs text-green-600">20% revenue</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-xs text-gray-500">Hours logged</p>
-                                <p className="text-xl font-bold text-green-600">{jobDetail.reviewerHours.toFixed(1)}</p>
-                                <p className="text-xs text-gray-400">jam</p>
-                              </div>
-                            </div>
-                            <div className="flex justify-between text-xs text-gray-500 mb-1">
-                              <span>Progress (Secondary)</span>
-                              <span className="font-bold text-green-600">{statusForm.progress_secondary}%</span>
-                            </div>
-                            <input type="range" min="0" max="100" step="5" value={statusForm.progress_secondary}
-                              onChange={e => canEditReviewer && setStatusForm({...statusForm, progress_secondary: Number(e.target.value)})}
-                              disabled={!canEditReviewer} className={`w-full accent-green-500 ${!canEditReviewer ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`} />
-                            <div className="w-full bg-green-200 rounded-full h-2 mt-1">
-                              <div className="bg-green-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_secondary}%`}}></div>
-                            </div>
-                            {!canEditReviewer && <p className="text-xs text-gray-400 mt-1">≡ƒöÆ Hanya Reviewer boleh edit</p>}
-                          </div>
-                        )}
-
-                        {/* DE */}
-                        {selectedJob.assigned_de && (
-                          <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
-                            <div className="flex justify-between items-start mb-3">
-                              <div>
-                                <p className="text-xs text-purple-500 font-bold">DATA ENTRY</p>
-                                <p className="font-bold text-gray-800">{jobDetail.de}</p>
-                                <p className="text-xs text-purple-600">5% revenue</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-xs text-gray-500">Hours logged</p>
-                                <p className="text-xl font-bold text-purple-600">{jobDetail.deHours.toFixed(1)}</p>
-                                <p className="text-xs text-gray-400">jam</p>
-                              </div>
-                            </div>
-                            <div className="flex justify-between text-xs text-gray-500 mb-1">
-                              <span>Progress (DE)</span>
-                              <span className="font-bold text-purple-600">{statusForm.progress_de}%</span>
-                            </div>
-                            <input type="range" min="0" max="100" step="5" value={statusForm.progress_de}
-                              onChange={e => canEditDe && setStatusForm({...statusForm, progress_de: Number(e.target.value)})}
-                              disabled={!canEditDe} className={`w-full accent-purple-500 ${!canEditDe ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`} />
-                            <div className="w-full bg-purple-200 rounded-full h-2 mt-1">
-                              <div className="bg-purple-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_de}%`}}></div>
-                            </div>
-                            {!canEditDe && <p className="text-xs text-gray-400 mt-1">≡ƒöÆ Hanya DE boleh edit</p>}
-                          </div>
-                        )}
-
-                        {/* Total */}
-                        <div className="bg-gray-100 rounded-xl p-4">
-                          <div className="flex justify-between items-center">
-                            <p className="font-bold text-gray-700">Total Hours</p>
-                            <p className="text-2xl font-bold text-gray-800">{jobDetail.totalHours.toFixed(1)} <span className="text-sm font-normal text-gray-500">jam</span></p>
-                          </div>
-                          {selectedJob.budgeted_hours && (
-                            <div className="mt-2">
-                              <div className="w-full bg-gray-300 rounded-full h-3">
-                                <div className={`h-3 rounded-full transition-all ${jobDetail.totalHours / selectedJob.budgeted_hours > 0.8 ? 'bg-red-500' : 'bg-green-500'}`}
-                                  style={{width: `${Math.min(100, (jobDetail.totalHours / selectedJob.budgeted_hours) * 100)}%`}}></div>
-                              </div>
-                              <p className="text-xs text-gray-500 mt-1">{jobDetail.totalHours.toFixed(1)} / {selectedJob.budgeted_hours} jam ({Math.round((jobDetail.totalHours / selectedJob.budgeted_hours) * 100)}%)</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      ))}
                     </div>
 
-                    {/* Status Update */}
-                    <div>
-                      <h3 className="font-bold text-gray-700 text-lg mb-4">≡ƒôè Kemaskini Status</h3>
-                      <div className="bg-white border rounded-xl p-5 space-y-4">
-                        <div>
-                          <label className="text-sm font-bold text-gray-600">Job Status</label>
-                          <select value={statusForm.status} onChange={e => setStatusForm({...statusForm, status: e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2.5 text-sm">
-                            <option value="not_started">ΓÜ¬ Belum Mula</option>
-                            <option value="in_progress">≡ƒö╡ Dalam Proses</option>
-                            <option value="pending_client">≡ƒƒí Pending Client</option>
-                            <option value="pending_authority">≡ƒƒá Pending LHDN/Auditor</option>
-                            <option value="kiv">≡ƒôî KIV</option>
-                            <option value="completed">Γ£à Selesai</option>
-                          </select>
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-xs font-bold text-gray-500 mb-2">RINGKASAN PROGRESS</p>
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm"><span className="text-blue-600">Primary (Exec)</span><span className="font-bold">{statusForm.progress_primary}%</span></div>
-                            {!jobDetail.isSolo && <div className="flex justify-between text-sm"><span className="text-green-600">Secondary (Reviewer)</span><span className="font-bold">{statusForm.progress_secondary}%</span></div>}
-                            {selectedJob.assigned_de && <div className="flex justify-between text-sm"><span className="text-purple-600">DE Progress</span><span className="font-bold">{statusForm.progress_de}%</span></div>}
+                    {/* Skop Kerja */}
+                    {selectedJob.job_description && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: 16, marginBottom: 24 }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: '#92400e', margin: '0 0 8px' }}>📌 SKOP KERJA</p>
+                        <p style={{ fontSize: 14, color: '#1e293b', margin: 0, lineHeight: 1.6 }}>{selectedJob.job_description}</p>
+                      </div>
+                    )}
+
+                    {/* Team & Hours */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                      <div>
+                        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>👥 Team & Hours</h3>
+                        {[
+                          { role: 'EXEC', name: jobDetail?.execName, hours: jobDetail?.execHours, pct: '75-80% revenue', color: '#3b82f6', bg: '#eff6ff', progressKey: 'progress_primary', progressLabel: 'Primary', canEdit: selectedJob.assigned_exec === profile?.id },
+                          !jobDetail?.isSolo && { role: 'REVIEWER', name: jobDetail?.reviewerName, hours: jobDetail?.reviewerHours, pct: '20% revenue', color: '#10b981', bg: '#f0fdf4', progressKey: 'progress_secondary', progressLabel: 'Secondary', canEdit: selectedJob.assigned_reviewer === profile?.id },
+                          selectedJob.assigned_de && { role: 'DATA ENTRY', name: jobDetail?.deName, hours: jobDetail?.deHours, pct: '5% revenue', color: '#8b5cf6', bg: '#faf5ff', progressKey: 'progress_de', progressLabel: 'DE', canEdit: selectedJob.assigned_de === profile?.id },
+                        ].filter(Boolean).map((item, i) => (
+                          <div key={i} style={{ background: item.bg, borderRadius: 12, padding: 14, marginBottom: 10, border: `1px solid ${item.color}20` }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <div>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: item.color }}>{item.role}</span>
+                                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{item.name || '-'}</p>
+                                <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>{item.pct}</p>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{(item.hours || 0).toFixed(1)}</span>
+                                <span style={{ fontSize: 11, color: '#64748b' }}> jam</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span style={{ fontSize: 11, color: '#64748b' }}>Progress {item.progressLabel}</span>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: item.color }}>{statusForm[item.progressKey]}%</span>
+                              </div>
+                              <input type="range" min="0" max="100" value={statusForm[item.progressKey]}
+                                onChange={e => item.canEdit && setStatusForm(p => ({ ...p, [item.progressKey]: parseInt(e.target.value) }))}
+                                disabled={!item.canEdit}
+                                style={{ width: '100%', accentColor: item.color, cursor: item.canEdit ? 'pointer' : 'not-allowed' }} />
+                              {!item.canEdit && <p style={{ fontSize: 10, color: '#94a3b8', margin: '2px 0 0' }}>🔒 Hanya {item.role} boleh edit</p>}
+                            </div>
                           </div>
-                        </div>
-                        <button onClick={updateJobStatus} disabled={updatingStatus} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 text-lg">
-                          {updatingStatus ? 'ΓÅ│ Menyimpan...' : 'Γ£à Simpan Kemaskini'}
+                        ))}
+                        {/* View History Button */}
+                        <button onClick={() => router.push(`/dashboard/staff/timesheet-history?job=${selectedJob.id}`)}
+                          style={{ width: '100%', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px', fontSize: 13, fontWeight: 600, color: '#475569', cursor: 'pointer', marginTop: 8 }}>
+                          📊 Lihat History Timesheet
                         </button>
                       </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
 
-            {/* ===== INSTRUCTIONS TAB ===== */}
-            {modalTab === 'instructions' && (
-              <div>
-                {/* Post new instruction/reply */}
-                <div className="bg-white border rounded-xl p-4 mb-6">
-                  <h3 className="font-bold text-gray-700 mb-3">
-                    {isHooOrCeo ? '≡ƒôó Hantar Instruction / Update' : '≡ƒÆ¼ Hantar Reply / Update'}
-                  </h3>
-                  <textarea
-                    value={newInstruction.message}
-                    onChange={e => setNewInstruction({...newInstruction, message: e.target.value})}
-                    placeholder={isHooOrCeo ? 'Tulis instruction atau update untuk team...' : 'Tulis reply atau update progress...'}
-                    className="w-full border rounded-lg px-3 py-2 text-sm mb-3 h-24 resize-none"
-                  />
-                  <div className="flex gap-3 items-end">
-                    {isHooOrCeo && (
-                      <>
-                        <div className="flex-1">
-                          <label className="text-xs text-gray-500 font-medium">Jenis</label>
-                          <select value={newInstruction.instruction_type} onChange={e => setNewInstruction({...newInstruction, instruction_type: e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm">
-                            <option value="instruction">≡ƒôó Instruction</option>
-                            <option value="update">≡ƒöä Update</option>
-                          </select>
-                        </div>
-                        <div className="flex-1">
-                          <label className="text-xs text-gray-500 font-medium">Urgency</label>
-                          <select value={newInstruction.urgency} onChange={e => setNewInstruction({...newInstruction, urgency: e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm">
-                            <option value="normal">≡ƒƒó Normal</option>
-                            <option value="urgent">≡ƒƒí Urgent</option>
-                            <option value="critical">≡ƒö┤ Kritikal</option>
-                          </select>
-                        </div>
-                      </>
-                    )}
-                    <button onClick={postInstruction} disabled={postingInstruction || !newInstruction.message.trim()}
-                      className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
-                      {postingInstruction ? 'ΓÅ│ Hantar...' : '≡ƒôñ Hantar'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Instructions List */}
-                {loadingInstructions ? <div className="text-center py-8 text-gray-400">ΓÅ│ Loading...</div>
-                : instructions.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <div className="text-4xl mb-2">≡ƒô¡</div>
-                    <p>Tiada instruction lagi untuk job ini</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {instructions.map(inst => (
-                      <div key={inst.id} className={`rounded-xl border p-4 ${inst.status === 'resolved' ? 'bg-gray-50 border-gray-200 opacity-75' : inst.urgency === 'critical' ? 'bg-red-50 border-red-300' : inst.urgency === 'urgent' ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}>
-                        {/* Instruction Header */}
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {getTypeBadge(inst.instruction_type)}
-                            {inst.instruction_type !== 'reply' && getUrgencyBadge(inst.urgency)}
-                            {inst.status === 'resolved' && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Γ£à Resolved</span>}
-                            {inst.status === 'reopened' && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">≡ƒöä Reopened</span>}
+                      <div>
+                        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>📊 Kemaskini Status</h3>
+                        <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16 }}>
+                          <div style={{ marginBottom: 14 }}>
+                            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Job Status</label>
+                            <select value={statusForm.status} onChange={e => setStatusForm(p => ({ ...p, status: e.target.value }))}
+                              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, marginTop: 4, boxSizing: 'border-box' }}>
+                              <option value="not_started">⚪ Belum Mula</option>
+                              <option value="in_progress">🔵 Dalam Proses</option>
+                              <option value="pending_client">🟡 Pending Client</option>
+                              <option value="pending_authority">🟠 Pending LHDN/Auditor</option>
+                              <option value="kiv">📌 KIV</option>
+                              <option value="completed">✅ Selesai</option>
+                            </select>
                           </div>
-                          <span className="text-xs text-gray-400">{new Date(inst.created_at).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-
-                        {/* Sender */}
-                        <p className="text-xs text-gray-500 mb-2">
-                          <span className="font-medium text-gray-700">{inst.created_by_profile?.full_name}</span>
-                          <span className="ml-1 text-gray-400">({inst.created_by_profile?.role?.toUpperCase()})</span>
-                        </p>
-
-                        {/* Message */}
-                        <p className="text-gray-800 text-sm leading-relaxed mb-3">{inst.message}</p>
-
-                        {/* Resolved info */}
-                        {inst.status === 'resolved' && inst.resolved_by_profile && (
-                          <p className="text-xs text-green-600 mb-2">Γ£à Resolved oleh {inst.resolved_by_profile.full_name} pada {new Date(inst.resolved_at).toLocaleDateString('ms-MY')}</p>
-                        )}
-
-                        {/* Action buttons */}
-                        <div className="flex gap-2">
-                          {/* Exec can resolve open instructions */}
-                          {isExec && inst.instruction_type === 'instruction' && inst.status === 'open' && (
-                            <button onClick={() => resolveInstruction(inst.id)} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 font-medium">
-                              Γ£à Mark Resolved
-                            </button>
-                          )}
-                          {/* HOO/CEO can reopen resolved instructions */}
-                          {isHooOrCeo && inst.status === 'resolved' && (
-                            <button onClick={() => reopenInstruction(inst.id)} className="text-xs bg-orange-500 text-white px-3 py-1.5 rounded-lg hover:bg-orange-600 font-medium">
-                              ≡ƒöä Reopen
-                            </button>
-                          )}
+                          <div style={{ background: 'white', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                            <p style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', margin: '0 0 8px' }}>RINGKASAN PROGRESS</p>
+                            {[
+                              { label: 'Primary (Exec)', key: 'progress_primary', color: '#3b82f6' },
+                              { label: 'Secondary (Reviewer)', key: 'progress_secondary', color: '#10b981' },
+                              selectedJob.assigned_de && { label: 'DE Progress', key: 'progress_de', color: '#8b5cf6' },
+                            ].filter(Boolean).map((p, i) => (
+                              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                <span style={{ fontSize: 13, color: p.color }}>{p.label}</span>
+                                <span style={{ fontSize: 13, fontWeight: 700 }}>{statusForm[p.key]}%</span>
+                              </div>
+                            ))}
+                          </div>
+                          <button onClick={updateJobStatus} disabled={updatingStatus}
+                            style={{ width: '100%', background: updatingStatus ? '#94a3b8' : '#3b82f6', color: 'white', border: 'none', borderRadius: 10, padding: '12px', fontSize: 14, fontWeight: 700, cursor: updatingStatus ? 'not-allowed' : 'pointer' }}>
+                            {updatingStatus ? '⏳ Menyimpan...' : '✅ Simpan Kemaskini'}
+                          </button>
                         </div>
                       </div>
-                    ))}
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
+
+                // TAB: LOG HARI INI (dalam modal — untuk job ini je)
+                ) : modalTab === 'logtoday' ? (
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>⏱️ Log Jam Kerja — {selectedJob.clients?.company_name}</h3>
+                    <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>Isi jam kerja untuk job ini sahaja. Atau guna "Log Hari Ini" di dashboard untuk log semua job sekaligus.</p>
+                    <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <div>
+                          <label style={{ fontSize: 13, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Jam Kerja Hari Ini</label>
+                          <input type="number" value={todayLogs[selectedJob.id] || ''} onChange={e => setTodayLogs(p => ({ ...p, [selectedJob.id]: e.target.value }))}
+                            min="0" max="24" step="0.5" placeholder="0"
+                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 13, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Cuti/MC/PH</label>
+                          <select value={todayLeave[selectedJob.id] || ''} onChange={e => setTodayLeave(p => ({ ...p, [selectedJob.id]: e.target.value }))}
+                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}>
+                            <option value="">-</option>
+                            <option value="Cuti">Cuti</option>
+                            <option value="MC">MC</option>
+                            <option value="PH">PH</option>
+                            <option value="Outstation">Outstation</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div style={{ marginBottom: 16 }}>
+                        <label style={{ fontSize: 13, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 6 }}>Nota Kerja</label>
+                        <textarea value={todayNotes[selectedJob.id] || ''} onChange={e => setTodayNotes(p => ({ ...p, [selectedJob.id]: e.target.value }))}
+                          placeholder="Apa yang dibuat hari ni untuk job ini..."
+                          rows={3}
+                          style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+                      </div>
+                      <button onClick={saveTodayLog} disabled={saving}
+                        style={{ width: '100%', background: saving ? '#94a3b8' : '#3b82f6', color: 'white', border: 'none', borderRadius: 10, padding: '12px', fontSize: 14, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                        {saving ? '⏳ Menyimpan...' : '💾 Simpan Log'}
+                      </button>
+                    </div>
+
+                    {/* Recent logs for this job */}
+                    {jobDetail?.timesheets && jobDetail.timesheets.length > 0 && (
+                      <div style={{ marginTop: 20 }}>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 10 }}>Log Terkini (Job Ini)</h4>
+                        {jobDetail.timesheets.slice(0, 5).map(log => (
+                          <div key={log.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
+                            <span style={{ color: '#475569' }}>{log.log_date}</span>
+                            <span style={{ fontWeight: 700, color: '#3b82f6' }}>{log.hours_logged} jam</span>
+                            <span style={{ color: '#94a3b8' }}>{log.note || '-'}</span>
+                          </div>
+                        ))}
+                        <button onClick={() => router.push(`/dashboard/staff/timesheet-history?job=${selectedJob.id}`)}
+                          style={{ width: '100%', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px', fontSize: 12, fontWeight: 600, color: '#475569', cursor: 'pointer', marginTop: 8 }}>
+                          📊 Lihat Semua History →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                // TAB: INSTRUCTIONS
+                ) : modalTab === 'instructions' ? (
+                  <div>
+                    {instructions.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
+                        <div style={{ fontSize: 32 }}>📭</div>
+                        <p style={{ marginTop: 8 }}>Tiada instruction untuk job ini</p>
+                      </div>
+                    ) : (
+                      instructions.map(instr => (
+                        <div key={instr.id} style={{ background: instr.urgency_level === 'kritikal' ? '#fef2f2' : instr.urgency_level === 'urgent' ? '#fffbeb' : '#f8fafc', borderRadius: 14, padding: 16, marginBottom: 16, border: `1px solid ${instr.urgency_level === 'kritikal' ? '#fecaca' : instr.urgency_level === 'urgent' ? '#fde68a' : '#e2e8f0'}` }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, background: instr.urgency_level === 'kritikal' ? '#dc2626' : instr.urgency_level === 'urgent' ? '#f59e0b' : '#64748b', color: 'white', padding: '2px 8px', borderRadius: 20 }}>
+                              {(instr.urgency_level || 'normal').toUpperCase()}
+                            </span>
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>{instr.profiles?.full_name} • {new Date(instr.created_at).toLocaleDateString('ms-MY')}</span>
+                          </div>
+                          <p style={{ fontSize: 14, color: '#1e293b', margin: '0 0 12px', lineHeight: 1.6 }}>{instr.message}</p>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <input type="text" value={replyText[instr.id] || ''} onChange={e => setReplyText(p => ({ ...p, [instr.id]: e.target.value }))}
+                              placeholder="Tulis reply..."
+                              style={{ flex: 1, padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+                            <button onClick={() => sendReply(instr.id)}
+                              style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                              Hantar
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : null
+              )}
+            </div>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function JobCard({ job, profile, onClick, today, statusLabel, statusColor }) {
+  const isOverdue = job.due_date && job.due_date < today
+  const isDueSoon = job.due_date && !isOverdue && new Date(job.due_date) <= new Date(Date.now() + 3 * 86400000)
+  const userRole = job.assigned_exec === profile?.id ? 'EXEC' : job.assigned_reviewer === profile?.id ? 'REVIEWER' : 'DE'
+  const progress = userRole === 'EXEC' ? (job.progress_primary || 0) : userRole === 'REVIEWER' ? (job.progress_secondary || 0) : (job.progress_de || 0)
+
+  return (
+    <div onClick={onClick} style={{ background: isOverdue ? '#fef2f2' : '#f8fafc', borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer', border: `1px solid ${isOverdue ? '#fecaca' : isDueSoon ? '#fde68a' : '#e2e8f0'}`, transition: 'box-shadow 0.2s' }}
+      onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
+      onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+        <div>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{job.clients?.company_name}</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{job.invoice_number} • {job.service_type}</p>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ background: statusColor(job.status) + '20', color: statusColor(job.status), fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 20 }}>
+            {statusLabel(job.status)}
+          </span>
+          <p style={{ margin: '4px 0 0', fontSize: 11, color: isOverdue ? '#dc2626' : isDueSoon ? '#f59e0b' : '#94a3b8', fontWeight: isOverdue || isDueSoon ? 700 : 400 }}>
+            {job.due_date ? `Due: ${new Date(job.due_date).toLocaleDateString('ms-MY')}` : '-'}
+            {isOverdue ? ' ⚠️' : isDueSoon ? ' ⏰' : ''}
+          </p>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ flex: 1, marginRight: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+            <span style={{ fontSize: 11, color: '#64748b' }}>Progress ({userRole})</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6' }}>{progress}%</span>
+          </div>
+          <div style={{ background: '#e2e8f0', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+            <div style={{ background: progress >= 100 ? '#10b981' : progress >= 70 ? '#3b82f6' : '#f59e0b', height: '100%', width: `${progress}%`, transition: 'width 0.3s' }} />
+          </div>
+        </div>
+        <span style={{ fontSize: 11, background: userRole === 'EXEC' ? '#dbeafe' : userRole === 'REVIEWER' ? '#d1fae5' : '#ede9fe', color: userRole === 'EXEC' ? '#1d4ed8' : userRole === 'REVIEWER' ? '#065f46' : '#5b21b6', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>
+          {userRole}
+        </span>
+      </div>
     </div>
   )
 }
