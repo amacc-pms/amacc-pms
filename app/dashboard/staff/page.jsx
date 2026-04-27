@@ -530,7 +530,7 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
                     </div>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
