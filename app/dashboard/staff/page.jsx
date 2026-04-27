@@ -241,7 +241,7 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
     if (!profile) return
     const { data: logs } = await supabase
       .from('timesheets')
-      .select('*, jobs(invoice_value, assigned_exec, assigned_reviewer, assigned_de)')
+      .select('*, jobs!timesheets_job_id_fkey(invoice_value, assigned_exec, assigned_reviewer, assigned_de)')
       .eq('staff_id', profile.id)
       .gte('log_date', `${selectedMonth}-01`)
       .lt('log_date', `${selectedMonth.slice(0,4)}-${String(parseInt(selectedMonth.slice(5,7))+1).padStart(2,'0')}-01`)
