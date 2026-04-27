@@ -5,8 +5,6 @@ import { supabase } from '../../../../lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 function TimesheetHistoryContent() {
-  const supabase = createClient()
-  const router = useRouter()
   const searchParams = useSearchParams()
   const jobId = searchParams.get('job')
   const [logs, setLogs] = useState([])
