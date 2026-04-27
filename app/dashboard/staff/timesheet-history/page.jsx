@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { supabase } from '../../../../lib/supabase'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-export default function TimesheetHistoryPage() {
+function TimesheetHistoryContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const jobId = searchParams.get('job')
@@ -20,37 +20,27 @@ export default function TimesheetHistoryPage() {
 
   async function loadHistory() {
     setLoading(true)
-
-    // Load job details
     const { data: jobData } = await supabase
       .from('jobs')
       .select('*, clients(company_name)')
       .eq('id', jobId)
       .single()
     setJob(jobData)
-
-    // Load ALL timesheet logs for this job (all staff)
     const { data: logData } = await supabase
       .from('timesheets')
       .select('*, profiles(full_name, position)')
       .eq('job_id', jobId)
       .order('log_date', { ascending: false })
     setLogs(logData || [])
-
     setLoading(false)
   }
 
-  // Get unique staff names for filter
   const staffNames = [...new Set((logs || []).map(l => l.profiles?.full_name).filter(Boolean))]
-
-  // Filter logs
   const filteredLogs = logs.filter(log => {
     const matchName = filterName === '' || log.profiles?.full_name === filterName
     const matchMonth = filterMonth === '' || log.log_date?.startsWith(filterMonth)
     return matchName && matchMonth
   })
-
-  // Summary per staff
   const staffSummary = {}
   filteredLogs.forEach(log => {
     const name = log.profiles?.full_name || 'Unknown'
@@ -58,11 +48,10 @@ export default function TimesheetHistoryPage() {
     staffSummary[name].hours += log.hours_logged || 0
     staffSummary[name].days.add(log.log_date)
   })
-
   const totalHours = filteredLogs.reduce((s, l) => s + (l.hours_logged || 0), 0)
 
   if (loading) return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ fontSize: 40 }}>⏳</div>
         <p style={{ color: '#64748b', marginTop: 8 }}>Memuatkan history...</p>
@@ -73,27 +62,19 @@ export default function TimesheetHistoryPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', padding: '20px 16px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
-
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
           <div>
             <button onClick={() => router.back()}
-              style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8 }}>
+              style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8, display: 'block' }}>
               ← Balik
             </button>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', margin: 0 }}>
-              📊 History Timesheet
-            </h1>
-            {job && (
-              <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 14 }}>
-                {job.clients?.company_name} — {job.invoice_number} • {job.service_type}
-              </p>
-            )}
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', margin: 0 }}>📊 History Timesheet</h1>
+            {job && <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 14 }}>{job.clients?.company_name} — {job.invoice_number} • {job.service_type}</p>}
           </div>
         </div>
 
-        {/* Staff Summary Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 24 }}>
+        {/* Staff Summary */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
           {Object.entries(staffSummary).map(([name, data], i) => (
             <div key={i} style={{ background: 'white', borderRadius: 12, padding: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', textAlign: 'center' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 4 }}>{name}</div>
@@ -101,7 +82,7 @@ export default function TimesheetHistoryPage() {
               <div style={{ fontSize: 12, color: '#64748b' }}>jam • {data.days.size} hari</div>
             </div>
           ))}
-          <div style={{ background: '#1e293b', borderRadius: 12, padding: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', textAlign: 'center' }}>
+          <div style={{ background: '#1e293b', borderRadius: 12, padding: 14, textAlign: 'center' }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 4 }}>JUMLAH</div>
             <div style={{ fontSize: 24, fontWeight: 800, color: '#10b981' }}>{totalHours.toFixed(1)}</div>
             <div style={{ fontSize: 12, color: '#94a3b8' }}>jam</div>
@@ -133,16 +114,13 @@ export default function TimesheetHistoryPage() {
           )}
         </div>
 
-        {/* Log Table */}
+        {/* Table */}
         <div style={{ background: 'white', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', margin: '0 0 16px' }}>
-            📋 Log Entries ({filteredLogs.length})
-          </h2>
-
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', margin: '0 0 16px' }}>📋 Log Entries ({filteredLogs.length})</h2>
           {filteredLogs.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
               <div style={{ fontSize: 40 }}>📭</div>
-              <p style={{ marginTop: 8 }}>Tiada log untuk filter ini</p>
+              <p>Tiada log untuk filter ini</p>
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -160,30 +138,22 @@ export default function TimesheetHistoryPage() {
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#374151', whiteSpace: 'nowrap', fontWeight: 600 }}>
                         {new Date(log.log_date).toLocaleDateString('ms-MY', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#1e293b', fontWeight: 600 }}>
-                        {log.profiles?.full_name || '-'}
-                      </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#64748b' }}>
-                        {log.profiles?.position || '-'}
-                      </td>
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#1e293b', fontWeight: 600 }}>{log.profiles?.full_name || '-'}</td>
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#64748b' }}>{log.profiles?.position || '-'}</td>
                       <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9' }}>
-                        <span style={{ background: log.hours_logged === 0 ? '#f1f5f9' : '#dbeafe', color: log.hours_logged === 0 ? '#94a3b8' : '#1d4ed8', fontWeight: 700, padding: '3px 10px', borderRadius: 20, fontSize: 13 }}>
+                        <span style={{ background: log.hours_logged === 0 ? '#f1f5f9' : '#dbeafe', color: log.hours_logged === 0 ? '#94a3b8' : '#1d4ed8', fontWeight: 700, padding: '3px 10px', borderRadius: 20 }}>
                           {log.hours_logged} jam
                         </span>
                       </td>
-                      <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#64748b' }}>
-                        {log.note || <span style={{ color: '#cbd5e1' }}>-</span>}
-                      </td>
+                      <td style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', color: '#64748b' }}>{log.note || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#f0f9ff' }}>
                     <td colSpan={3} style={{ padding: '10px 12px', fontWeight: 700, color: '#1e293b' }}>JUMLAH</td>
-                    <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1d4ed8' }}>
-                      <span style={{ background: '#dbeafe', color: '#1d4ed8', fontWeight: 700, padding: '3px 10px', borderRadius: 20 }}>
-                        {totalHours.toFixed(1)} jam
-                      </span>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span style={{ background: '#dbeafe', color: '#1d4ed8', fontWeight: 700, padding: '3px 10px', borderRadius: 20 }}>{totalHours.toFixed(1)} jam</span>
                     </td>
                     <td></td>
                   </tr>
@@ -192,8 +162,15 @@ export default function TimesheetHistoryPage() {
             </div>
           )}
         </div>
-
       </div>
     </div>
+  )
+}
+
+export default function TimesheetHistoryPage() {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><p>Loading...</p></div>}>
+      <TimesheetHistoryContent />
+    </Suspense>
   )
 }
