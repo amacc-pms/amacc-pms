@@ -1,8 +1,12 @@
- {
+{
   "crons": [
     {
       "path": "/api/timesheet-alert",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/due-date-reminder",
+      "schedule": "0 0 * * *"
     }
   ]
 }
