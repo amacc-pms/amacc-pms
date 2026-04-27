@@ -16,6 +16,11 @@ export default function StaffDashboard() {
   const [message, setMessage] = useState('')
   const [activeTab, setActiveTab] = useState('aktif')
   const [unearnedRevenue, setUnearnedRevenue] = useState({ thisMonth: 0, allTime: 0, missedDays: 0 })
+  const [selectedJob, setSelectedJob] = useState(null)
+  const [jobDetail, setJobDetail] = useState(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [statusForm, setStatusForm] = useState({ status: '', progress_primary: 0, progress_secondary: 0 })
   const router = useRouter()
 
   const today = new Date().toISOString().split('T')[0]
@@ -39,16 +44,13 @@ export default function StaffDashboard() {
     const now = new Date()
     const hour = now.getHours()
     if (hour < 10) return
-    
-    // Check ada jobs aktif tak — kalau takde, skip block
     const { data: activeJobs } = await supabase
       .from('jobs')
       .select('id')
       .or(`assigned_exec.eq.${prof.id},assigned_reviewer.eq.${prof.id},assigned_de.eq.${prof.id}`)
       .not('status', 'eq', 'completed')
       .limit(1)
-    
-    if (!activeJobs || activeJobs.length === 0) return // Staff baru, skip block
+    if (!activeJobs || activeJobs.length === 0) return
     const { data: yesterdayLog } = await supabase
       .from('timesheets')
       .select('id')
@@ -92,8 +94,6 @@ export default function StaffDashboard() {
   async function calculateUnearned(staffId) {
     const now = new Date()
     const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-
-    // Kira hari missed (exclude Saturday & Sunday)
     const { data: logs } = await supabase
       .from('timesheets')
       .select('log_date')
@@ -109,14 +109,11 @@ export default function StaffDashboard() {
       if (day !== 0 && day !== 6 && !loggedDates.has(dateStr)) missedDays++
       d.setDate(d.getDate() + 1)
     }
-
-    // Kira daily rate berdasarkan invoice value jobs aktif
     const { data: activeJobs } = await supabase
       .from('jobs')
       .select('id, invoice_value, assigned_exec, assigned_reviewer, assigned_de')
       .or(`assigned_exec.eq.${staffId},assigned_reviewer.eq.${staffId},assigned_de.eq.${staffId}`)
       .not('status', 'eq', 'completed')
-
     let dailyRate = 0
     activeJobs?.forEach(job => {
       const invoiceVal = Number(job.invoice_value || 0)
@@ -132,14 +129,75 @@ export default function StaffDashboard() {
         dailyRate += (invoiceVal * 0.05) / totalJobDays
       }
     })
-
     const unearnedThisMonth = dailyRate * missedDays
-    // Kalau tiada jobs aktif, unearned = 0
-    setUnearnedRevenue({ 
-      thisMonth: activeJobs && activeJobs.length > 0 ? unearnedThisMonth : 0, 
-      allTime: activeJobs && activeJobs.length > 0 ? unearnedThisMonth : 0, 
-      missedDays: activeJobs && activeJobs.length > 0 ? missedDays : 0 
+    setUnearnedRevenue({
+      thisMonth: activeJobs && activeJobs.length > 0 ? unearnedThisMonth : 0,
+      allTime: activeJobs && activeJobs.length > 0 ? unearnedThisMonth : 0,
+      missedDays: activeJobs && activeJobs.length > 0 ? missedDays : 0
     })
+  }
+
+  async function openJobDetail(job) {
+    setSelectedJob(job)
+    setLoadingDetail(true)
+    setStatusForm({
+      status: job.status || 'in_progress',
+      progress_primary: job.completion_percentage || 0,
+      progress_secondary: job.completion_secondary || 0,
+    })
+
+    // Load exec, reviewer, DE profiles + their hours
+    const [execRes, reviewerRes, deRes, execHoursRes, reviewerHoursRes, deHoursRes] = await Promise.all([
+      job.assigned_exec ? supabase.from('profiles').select('full_name').eq('id', job.assigned_exec).single() : Promise.resolve({ data: null }),
+      job.assigned_reviewer ? supabase.from('profiles').select('full_name').eq('id', job.assigned_reviewer).single() : Promise.resolve({ data: null }),
+      job.assigned_de ? supabase.from('profiles').select('full_name').eq('id', job.assigned_de).single() : Promise.resolve({ data: null }),
+      job.assigned_exec ? supabase.from('timesheets').select('hours_logged').eq('job_id', job.id).eq('staff_id', job.assigned_exec) : Promise.resolve({ data: [] }),
+      job.assigned_reviewer ? supabase.from('timesheets').select('hours_logged').eq('job_id', job.id).eq('staff_id', job.assigned_reviewer) : Promise.resolve({ data: [] }),
+      job.assigned_de ? supabase.from('timesheets').select('hours_logged').eq('job_id', job.id).eq('staff_id', job.assigned_de) : Promise.resolve({ data: [] }),
+    ])
+
+    const sumHours = (data) => (data || []).reduce((sum, r) => sum + Number(r.hours_logged || 0), 0)
+    const execHours = sumHours(execHoursRes.data)
+    const reviewerHours = sumHours(reviewerHoursRes.data)
+    const deHours = sumHours(deHoursRes.data)
+    const totalHours = execHours + (job.assigned_reviewer !== job.assigned_exec ? reviewerHours : 0) + deHours
+
+    // Pending client alert level
+    let pendingDays = 0
+    let pendingLevel = null
+    if (job.status === 'pending_client' && job.updated_at) {
+      pendingDays = Math.floor((new Date() - new Date(job.updated_at)) / (1000 * 60 * 60 * 24))
+      if (pendingDays >= 30) pendingLevel = 'kiv'
+      else if (pendingDays >= 14) pendingLevel = 'red'
+      else if (pendingDays >= 7) pendingLevel = 'orange'
+      else if (pendingDays >= 3) pendingLevel = 'yellow'
+    }
+
+    setJobDetail({
+      exec: execRes.data?.full_name || '-',
+      reviewer: reviewerRes.data?.full_name || '-',
+      de: deRes.data?.full_name || '-',
+      execHours, reviewerHours, deHours, totalHours,
+      pendingDays, pendingLevel,
+      isSolo: job.assigned_exec === job.assigned_reviewer,
+    })
+    setLoadingDetail(false)
+  }
+
+  async function updateJobStatus() {
+    if (!selectedJob || !profile) return
+    setUpdatingStatus(true)
+    await supabase.from('jobs').update({
+      status: statusForm.status,
+      completion_percentage: statusForm.progress_primary,
+      updated_at: new Date().toISOString(),
+    }).eq('id', selectedJob.id)
+    setMessage('✅ Status job berjaya dikemaskini!')
+    setSelectedJob(null)
+    setJobDetail(null)
+    await loadJobs(profile.id)
+    setUpdatingStatus(false)
+    setTimeout(() => setMessage(''), 3000)
   }
 
   async function saveTimesheets() {
@@ -164,6 +222,30 @@ export default function StaffDashboard() {
     setSaving(false)
   }
 
+  const getStatusLabel = (status) => {
+    const labels = {
+      'not_started': '⚪ Belum Mula',
+      'in_progress': '🔵 Dalam Proses',
+      'pending_client': '🟡 Pending Client',
+      'pending_authority': '🟠 Pending LHDN/Auditor',
+      'completed': '✅ Selesai',
+      'kiv': '📌 KIV',
+    }
+    return labels[status] || status
+  }
+
+  const getPendingAlert = (level, days) => {
+    if (!level) return null
+    const configs = {
+      yellow: { bg: 'bg-yellow-50', border: 'border-yellow-300', text: 'text-yellow-700', label: `⚠️ Pending Client ${days} hari — Follow up segera!` },
+      orange: { bg: 'bg-orange-50', border: 'border-orange-300', text: 'text-orange-700', label: `🔶 Pending Client ${days} hari — Urgent follow up!` },
+      red: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-700', label: `🚨 Pending Client ${days} hari — Kritikal! Maklumkan HOO!` },
+      kiv: { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-700', label: `📌 Pending Client ${days} hari — Akan masuk KIV automatik` },
+    }
+    const c = configs[level]
+    return <div className={`${c.bg} border ${c.border} rounded-lg p-3 mb-3`}><p className={`text-sm font-medium ${c.text}`}>{c.label}</p></div>
+  }
+
   if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="text-gray-500">Loading...</div></div>
 
   if (isBlocked) {
@@ -182,7 +264,7 @@ export default function StaffDashboard() {
             📝 Log Timesheet Sekarang
           </button>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="w-full bg-gray-100 text-gray-600 py-2 rounded-lg text-sm">
-            <button onClick={() => router.push('/dashboard/staff/osm')} className="bg-purple-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-purple-400">📋 OSM</button>Log Keluar
+            Log Keluar
           </button>
         </div>
       </div>
@@ -200,6 +282,7 @@ export default function StaffDashboard() {
           <div className="text-sm opacity-80">Staff Dashboard</div>
         </div>
         <div className="flex items-center gap-3">
+          <button onClick={() => router.push('/dashboard/staff/osm')} className="bg-purple-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-purple-400">📋 OSM</button>
           <span className="text-sm">{profile?.full_name}</span>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="bg-white text-blue-600 px-3 py-1 rounded text-sm font-medium">Log Keluar</button>
         </div>
@@ -248,21 +331,46 @@ export default function StaffDashboard() {
 
         {activeTab === 'aktif' && (
           <div className="space-y-4">
-            {aktifJobs.length === 0 ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs aktif</div>
-            : aktifJobs.map(job => (
-              <div key={job.id} className="bg-white rounded-lg border border-gray-200 p-4">
+            {aktifJobs.length === 0
+              ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs aktif</div>
+              : aktifJobs.map(job => (
+              <div key={job.id} className="bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all">
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <h3 className="font-bold text-gray-800">{job.clients?.company_name}</h3>
+                    <button
+                      onClick={() => openJobDetail(job)}
+                      className="font-bold text-blue-600 hover:text-blue-800 hover:underline text-left"
+                    >
+                      {job.clients?.company_name}
+                    </button>
                     <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
-                    <p className="text-green-600 font-bold">RM {Number(job.invoice_value).toLocaleString()}</p>
+                    <p className="text-green-600 font-bold text-sm">RM {Number(job.invoice_value || 0).toLocaleString()}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-xs text-gray-500">Due: {job.due_date ? new Date(job.due_date).toLocaleDateString('ms-MY') : '-'}</span>
                     {job.due_date && new Date(job.due_date) < new Date() && <div className="text-xs text-red-500 font-medium">⚠️ OVERDUE</div>}
+                    <button
+                      onClick={() => openJobDetail(job)}
+                      className="mt-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100"
+                    >
+                      Lihat Detail →
+                    </button>
                   </div>
                 </div>
                 {job.job_description && <div className="bg-gray-50 rounded p-2 text-sm text-gray-600">📋 {job.job_description}</div>}
+                {job.status && (
+                  <div className="mt-2">
+                    <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">{getStatusLabel(job.status)}</span>
+                    {job.completion_percentage > 0 && (
+                      <div className="mt-1">
+                        <div className="w-full bg-gray-200 rounded-full h-1.5">
+                          <div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${job.completion_percentage}%`}}></div>
+                        </div>
+                        <span className="text-xs text-gray-500">{job.completion_percentage}% siap</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -307,10 +415,11 @@ export default function StaffDashboard() {
 
         {activeTab === 'kiv' && (
           <div className="space-y-3">
-            {kivJobs.length === 0 ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs KIV</div>
-            : kivJobs.map(job => (
+            {kivJobs.length === 0
+              ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs KIV</div>
+              : kivJobs.map(job => (
               <div key={job.id} className="bg-white rounded-lg border border-yellow-200 p-4">
-                <h3 className="font-bold text-gray-800">{job.clients?.company_name}</h3>
+                <button onClick={() => openJobDetail(job)} className="font-bold text-blue-600 hover:underline">{job.clients?.company_name}</button>
                 <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
                 <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">KIV</span>
               </div>
@@ -318,6 +427,177 @@ export default function StaffDashboard() {
           </div>
         )}
       </div>
+
+      {/* JOB DETAIL MODAL */}
+      {selectedJob && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-2xl flex justify-between items-start">
+              <div>
+                <h2 className="text-lg font-bold">{selectedJob.clients?.company_name}</h2>
+                <p className="text-blue-200 text-sm">{selectedJob.invoice_number} • {selectedJob.service_type}</p>
+              </div>
+              <button onClick={() => { setSelectedJob(null); setJobDetail(null) }} className="text-white hover:text-blue-200 text-2xl leading-none">×</button>
+            </div>
+
+            <div className="p-6">
+              {/* Job Info */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-500">Invoice Value</p>
+                  <p className="font-bold text-green-600">RM {Number(selectedJob.invoice_value || 0).toLocaleString()}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-500">Due Date</p>
+                  <p className="font-medium text-gray-800">{selectedJob.due_date ? new Date(selectedJob.due_date).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</p>
+                  {selectedJob.due_date && new Date(selectedJob.due_date) < new Date() && <p className="text-xs text-red-500 font-medium">⚠️ OVERDUE</p>}
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-500">Financial Year End</p>
+                  <p className="font-medium text-gray-800">{selectedJob.financial_year_end || '-'}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-500">Budgeted Hours</p>
+                  <p className="font-medium text-gray-800">{selectedJob.budgeted_hours || '-'} jam</p>
+                </div>
+              </div>
+
+              {/* Job Description */}
+              {selectedJob.job_description && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-5">
+                  <p className="text-xs text-blue-500 font-medium mb-1">📋 Skop Kerja</p>
+                  <p className="text-sm text-blue-800">{selectedJob.job_description}</p>
+                </div>
+              )}
+
+              {/* Pending Client Alert */}
+              {jobDetail && getPendingAlert(jobDetail.pendingLevel, jobDetail.pendingDays)}
+
+              {loadingDetail ? (
+                <div className="text-center py-4 text-gray-400">Loading details...</div>
+              ) : jobDetail && (
+                <>
+                  {/* Team & Hours */}
+                  <div className="mb-5">
+                    <h3 className="font-bold text-gray-700 mb-3">👥 Team & Hours</h3>
+                    <div className="space-y-2">
+                      {/* Exec */}
+                      <div className="flex items-center justify-between bg-blue-50 rounded-lg p-3">
+                        <div>
+                          <p className="text-xs text-blue-500 font-medium">Exec {jobDetail.isSolo ? '(Solo)' : ''}</p>
+                          <p className="font-medium text-gray-800">{jobDetail.exec}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500">Hours logged</p>
+                          <p className="font-bold text-blue-600">{jobDetail.execHours.toFixed(1)} jam</p>
+                          <p className="text-xs text-gray-400">{jobDetail.isSolo ? '80%' : '75%'} revenue</p>
+                        </div>
+                      </div>
+
+                      {/* Reviewer */}
+                      {!jobDetail.isSolo && (
+                        <div className="flex items-center justify-between bg-green-50 rounded-lg p-3">
+                          <div>
+                            <p className="text-xs text-green-500 font-medium">Reviewer</p>
+                            <p className="font-medium text-gray-800">{jobDetail.reviewer}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500">Hours logged</p>
+                            <p className="font-bold text-green-600">{jobDetail.reviewerHours.toFixed(1)} jam</p>
+                            <p className="text-xs text-gray-400">20% revenue</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* DE */}
+                      {selectedJob.assigned_de && (
+                        <div className="flex items-center justify-between bg-purple-50 rounded-lg p-3">
+                          <div>
+                            <p className="text-xs text-purple-500 font-medium">Data Entry</p>
+                            <p className="font-medium text-gray-800">{jobDetail.de}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500">Hours logged</p>
+                            <p className="font-bold text-purple-600">{jobDetail.deHours.toFixed(1)} jam</p>
+                            <p className="text-xs text-gray-400">5% revenue</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Total */}
+                      <div className="flex items-center justify-between bg-gray-100 rounded-lg p-3">
+                        <p className="font-medium text-gray-700">Total Hours</p>
+                        <div className="text-right">
+                          <p className="font-bold text-gray-800">{jobDetail.totalHours.toFixed(1)} jam</p>
+                          {selectedJob.budgeted_hours && (
+                            <div>
+                              <div className="w-24 bg-gray-300 rounded-full h-1.5 mt-1">
+                                <div
+                                  className={`h-1.5 rounded-full ${jobDetail.totalHours / selectedJob.budgeted_hours > 0.8 ? 'bg-red-500' : 'bg-green-500'}`}
+                                  style={{width: `${Math.min(100, (jobDetail.totalHours / selectedJob.budgeted_hours) * 100)}%`}}
+                                ></div>
+                              </div>
+                              <p className="text-xs text-gray-400">{jobDetail.totalHours.toFixed(1)} / {selectedJob.budgeted_hours} jam budget</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Update Status */}
+                  <div className="border-t pt-4">
+                    <h3 className="font-bold text-gray-700 mb-3">📊 Kemaskini Status</h3>
+
+                    {/* Job Status */}
+                    <div className="mb-3">
+                      <label className="text-xs text-gray-500 font-medium">Job Status</label>
+                      <select
+                        value={statusForm.status}
+                        onChange={e => setStatusForm({...statusForm, status: e.target.value})}
+                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="not_started">⚪ Belum Mula</option>
+                        <option value="in_progress">🔵 Dalam Proses</option>
+                        <option value="pending_client">🟡 Pending Client</option>
+                        <option value="pending_authority">🟠 Pending LHDN/Auditor</option>
+                        <option value="kiv">📌 KIV</option>
+                        <option value="completed">✅ Selesai</option>
+                      </select>
+                    </div>
+
+                    {/* Progress Primary Slider (Exec) */}
+                    <div className="mb-3">
+                      <label className="text-xs text-gray-500 font-medium">Job Progress (Primary) — {statusForm.progress_primary}%</label>
+                      <input
+                        type="range" min="0" max="100" step="5"
+                        value={statusForm.progress_primary}
+                        onChange={e => setStatusForm({...statusForm, progress_primary: Number(e.target.value)})}
+                        className="w-full mt-1 accent-blue-500"
+                      />
+                      <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                        <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_primary}%`}}></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-400 mt-1">
+                        <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={updateJobStatus}
+                      disabled={updatingStatus}
+                      className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {updatingStatus ? 'Menyimpan...' : '✅ Simpan Kemaskini'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
