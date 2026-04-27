@@ -49,13 +49,13 @@ export default function HOODashboard() {
   }
 
   async function loadData(prof) {
-    let query = supabase.from('jobs').select('*, clients!jobs_client_id_fkey(company_name)').order('created_at', { ascending: false })
+    let query = supabase.from('jobs').select('*, financial_year_end, clients!jobs_client_id_fkey(company_name)').order('created_at', { ascending: false })
     if (prof?.role === 'hoo' && prof?.division) query = query.eq('division', prof.division)
     const { data: jobsData } = await query
     setJobs(jobsData || [])
 
     const { data: myJobsData } = await supabase.from('jobs')
-      .select('*, clients!jobs_client_id_fkey(company_name)')
+      .select('*, financial_year_end, clients!jobs_client_id_fkey(company_name)')
       .or(`assigned_exec.eq.${prof.id},assigned_reviewer.eq.${prof.id}`)
       .not('status', 'eq', 'completed')
     setMyJobs(myJobsData || [])
