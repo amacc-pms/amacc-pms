@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
@@ -233,7 +233,7 @@ export default function StaffDashboard() {
       completion_secondary: statusForm.progress_secondary, completion_de: statusForm.progress_de,
       updated_at: new Date().toISOString(),
     }).eq('id', selectedJob.id)
-    setMessage('✅ Status job berjaya dikemaskini!')
+    setMessage('Γ£à Status job berjaya dikemaskini!')
     setSelectedJob(null); setJobDetail(null)
     await loadJobs(profile.id)
     setUpdatingStatus(false)
@@ -253,29 +253,29 @@ export default function StaffDashboard() {
       await supabase.from('profiles').update({ is_blocked: false, unblocked_at: new Date().toISOString() }).eq('id', profile.id)
       setIsBlocked(false)
     }
-    setMessage('✅ Timesheet berjaya disimpan!')
+    setMessage('Γ£à Timesheet berjaya disimpan!')
     setTimeout(() => setMessage(''), 3000)
     setSaving(false)
   }
 
-  const getStatusLabel = (s) => ({ not_started: '⚪ Belum Mula', in_progress: '🔵 Dalam Proses', pending_client: '🟡 Pending Client', pending_authority: '🟠 Pending LHDN/Auditor', completed: '✅ Selesai', kiv: '📌 KIV' }[s] || s)
+  const getStatusLabel = (s) => ({ not_started: 'ΓÜ¬ Belum Mula', in_progress: '≡ƒö╡ Dalam Proses', pending_client: '≡ƒƒí Pending Client', pending_authority: '≡ƒƒá Pending LHDN/Auditor', completed: 'Γ£à Selesai', kiv: '≡ƒôî KIV' }[s] || s)
 
   const getPendingAlert = (level, days) => {
     if (!level) return null
-    const c = { yellow: { bg: 'bg-yellow-50', border: 'border-yellow-300', text: 'text-yellow-700', label: `⚠️ Pending Client ${days} hari — Follow up segera!` }, orange: { bg: 'bg-orange-50', border: 'border-orange-300', text: 'text-orange-700', label: `🔶 Pending Client ${days} hari — Urgent!` }, red: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-700', label: `🚨 Pending Client ${days} hari — Kritikal! Maklumkan HOO!` }, kiv: { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-700', label: `📌 Pending Client ${days} hari — Akan masuk KIV` } }[level]
+    const c = { yellow: { bg: 'bg-yellow-50', border: 'border-yellow-300', text: 'text-yellow-700', label: `ΓÜá∩╕Å Pending Client ${days} hari ΓÇö Follow up segera!` }, orange: { bg: 'bg-orange-50', border: 'border-orange-300', text: 'text-orange-700', label: `≡ƒö╢ Pending Client ${days} hari ΓÇö Urgent!` }, red: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-700', label: `≡ƒÜ¿ Pending Client ${days} hari ΓÇö Kritikal! Maklumkan HOO!` }, kiv: { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-700', label: `≡ƒôî Pending Client ${days} hari ΓÇö Akan masuk KIV` } }[level]
     return <div className={`${c.bg} border ${c.border} rounded-lg p-3 mb-4`}><p className={`text-sm font-medium ${c.text}`}>{c.label}</p></div>
   }
 
   const getUrgencyBadge = (urgency) => ({
-    normal: <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">🟢 Normal</span>,
-    urgent: <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">🟡 Urgent</span>,
-    critical: <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">🔴 Kritikal</span>,
+    normal: <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">≡ƒƒó Normal</span>,
+    urgent: <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">≡ƒƒí Urgent</span>,
+    critical: <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">≡ƒö┤ Kritikal</span>,
   }[urgency] || null)
 
   const getTypeBadge = (type) => ({
-    instruction: <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">📢 Instruction</span>,
-    reply: <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">💬 Reply</span>,
-    update: <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">🔄 Update</span>,
+    instruction: <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">≡ƒôó Instruction</span>,
+    reply: <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">≡ƒÆ¼ Reply</span>,
+    update: <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">≡ƒöä Update</span>,
   }[type] || null)
 
   const isHooOrCeo = profile && ['hoo', 'hoo_mp', 'ceo'].includes(profile.role)
@@ -292,11 +292,11 @@ export default function StaffDashboard() {
     return (
       <div className="min-h-screen bg-red-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
-          <div className="text-6xl mb-4">🔒</div>
+          <div className="text-6xl mb-4">≡ƒöÆ</div>
           <h1 className="text-2xl font-bold text-red-600 mb-2">Timesheet Belum Dikemaskini!</h1>
           <p className="text-gray-600 mb-2">Awak belum log hours untuk:</p>
           <p className="text-lg font-bold text-red-500 mb-6">{new Date(missedDate).toLocaleDateString('ms-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          <button onClick={() => setIsBlocked(false)} className="w-full bg-red-500 text-white py-3 rounded-lg font-medium hover:bg-red-600 mb-3">📝 Log Timesheet Sekarang</button>
+          <button onClick={() => setIsBlocked(false)} className="w-full bg-red-500 text-white py-3 rounded-lg font-medium hover:bg-red-600 mb-3">≡ƒô¥ Log Timesheet Sekarang</button>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="w-full bg-gray-100 text-gray-600 py-2 rounded-lg text-sm">Log Keluar</button>
         </div>
       </div>
@@ -314,7 +314,7 @@ export default function StaffDashboard() {
           <div className="text-sm opacity-80">Staff Dashboard</div>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/dashboard/staff/osm')} className="bg-purple-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-purple-400">📋 OSM</button>
+          <button onClick={() => router.push('/dashboard/staff/osm')} className="bg-purple-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-purple-400">≡ƒôï OSM</button>
           <span className="text-sm">{profile?.full_name}</span>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="bg-white text-blue-600 px-3 py-1 rounded text-sm font-medium">Log Keluar</button>
         </div>
@@ -335,7 +335,7 @@ export default function StaffDashboard() {
 
         {unearnedRevenue.missedDays > 0 && (
           <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-            <p className="text-orange-700 font-medium">⚠️ {unearnedRevenue.missedDays} hari bulan ini tiada timesheet</p>
+            <p className="text-orange-700 font-medium">ΓÜá∩╕Å {unearnedRevenue.missedDays} hari bulan ini tiada timesheet</p>
             <p className="text-orange-600 text-sm">Anggaran revenue tidak dikira: <strong>RM {unearnedRevenue.thisMonth.toFixed(2)}</strong></p>
           </div>
         )}
@@ -344,7 +344,7 @@ export default function StaffDashboard() {
 
         <div className="flex gap-2 mb-4">
           <button onClick={() => setActiveTab('aktif')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'aktif' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>Aktif ({aktifJobs.length})</button>
-          <button onClick={() => setActiveTab('timesheet')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'timesheet' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>📝 Log Hari Ini</button>
+          <button onClick={() => setActiveTab('timesheet')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'timesheet' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>≡ƒô¥ Log Hari Ini</button>
           <button onClick={() => setActiveTab('kiv')} className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'kiv' ? 'bg-blue-500 text-white' : 'bg-white border text-gray-600'}`}>KIV ({kivJobs.length})</button>
         </div>
 
@@ -356,16 +356,16 @@ export default function StaffDashboard() {
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <h3 className="font-bold text-blue-600">{job.clients?.company_name}</h3>
-                    <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
+                    <p className="text-sm text-gray-500">{job.invoice_number} ΓÇó {job.service_type}</p>
                     <p className="text-green-600 font-bold text-sm">RM {Number(job.invoice_value || 0).toLocaleString()}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-xs text-gray-500">Due: {job.due_date ? new Date(job.due_date).toLocaleDateString('ms-MY') : '-'}</span>
-                    {job.due_date && new Date(job.due_date) < new Date() && <div className="text-xs text-red-500 font-medium">⚠️ OVERDUE</div>}
-                    <div className="mt-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded">Lihat Detail →</div>
+                    {job.due_date && new Date(job.due_date) < new Date() && <div className="text-xs text-red-500 font-medium">ΓÜá∩╕Å OVERDUE</div>}
+                    <div className="mt-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded">Lihat Detail ΓåÆ</div>
                   </div>
                 </div>
-                {job.job_description && <div className="bg-gray-50 rounded p-2 text-sm text-gray-600">📋 {job.job_description}</div>}
+                {job.job_description && <div className="bg-gray-50 rounded p-2 text-sm text-gray-600">≡ƒôï {job.job_description}</div>}
                 {job.completion_percentage > 0 && (
                   <div className="mt-2">
                     <div className="w-full bg-gray-200 rounded-full h-1.5">
@@ -382,7 +382,7 @@ export default function StaffDashboard() {
         {activeTab === 'timesheet' && (
           <div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-              <p className="text-blue-700 text-sm">📝 Update jam untuk job yang awak buat hari ni sahaja.</p>
+              <p className="text-blue-700 text-sm">≡ƒô¥ Update jam untuk job yang awak buat hari ni sahaja.</p>
             </div>
             <div className="space-y-3">
               {aktifJobs.map(job => (
@@ -390,7 +390,7 @@ export default function StaffDashboard() {
                   <div className="flex justify-between items-center mb-2">
                     <div>
                       <p className="font-medium text-sm">{job.clients?.company_name}</p>
-                      <p className="text-xs text-gray-500">{job.invoice_number} • {job.service_type}</p>
+                      <p className="text-xs text-gray-500">{job.invoice_number} ΓÇó {job.service_type}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <input type="number" min="0" max="12" step="0.5" value={todayLogs[job.id] || 0}
@@ -408,7 +408,7 @@ export default function StaffDashboard() {
               ))}
             </div>
             <button onClick={saveTimesheets} disabled={saving} className="w-full mt-4 bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50">
-              {saving ? 'Menyimpan...' : '💾 Simpan Semua Timesheet'}
+              {saving ? 'Menyimpan...' : '≡ƒÆ╛ Simpan Semua Timesheet'}
             </button>
           </div>
         )}
@@ -419,7 +419,7 @@ export default function StaffDashboard() {
             : kivJobs.map(job => (
               <div key={job.id} onClick={() => openJobDetail(job)} className="bg-white rounded-lg border border-yellow-200 p-4 cursor-pointer hover:shadow-sm">
                 <h3 className="font-bold text-blue-600">{job.clients?.company_name}</h3>
-                <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
+                <p className="text-sm text-gray-500">{job.invoice_number} ΓÇó {job.service_type}</p>
                 <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">KIV</span>
               </div>
             ))}
@@ -434,19 +434,19 @@ export default function StaffDashboard() {
           <div className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-10">
             <div>
               <h2 className="text-xl font-bold">{selectedJob.clients?.company_name}</h2>
-              <p className="text-blue-200 text-sm">{selectedJob.invoice_number} • {selectedJob.service_type}</p>
+              <p className="text-blue-200 text-sm">{selectedJob.invoice_number} ΓÇó {selectedJob.service_type}</p>
             </div>
-            <button onClick={() => { setSelectedJob(null); setJobDetail(null) }} className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50">✕ Tutup</button>
+            <button onClick={() => { setSelectedJob(null); setJobDetail(null) }} className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50">Γ£ò Tutup</button>
           </div>
 
           {/* Modal Tabs */}
           <div className="bg-gray-100 px-6 flex gap-2 sticky top-16 z-10 border-b">
             <button onClick={() => setModalTab('detail')} className={`px-5 py-3 text-sm font-medium border-b-2 transition-all ${modalTab === 'detail' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              📋 Detail & Status
+              ≡ƒôï Detail & Status
             </button>
             <button onClick={() => { setModalTab('instructions'); loadInstructions(selectedJob.id) }}
               className={`px-5 py-3 text-sm font-medium border-b-2 transition-all flex items-center gap-2 ${modalTab === 'instructions' ? 'border-blue-600 text-blue-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              📢 Instructions
+              ≡ƒôó Instructions
               {openInstructionsCount > 0 && <span className="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{openInstructionsCount}</span>}
             </button>
           </div>
@@ -464,7 +464,7 @@ export default function StaffDashboard() {
                   <div className={`rounded-xl p-4 border ${selectedJob.due_date && new Date(selectedJob.due_date) < new Date() ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
                     <p className="text-xs text-gray-500 font-medium">Due Date</p>
                     <p className="font-bold text-gray-800">{selectedJob.due_date ? new Date(selectedJob.due_date).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}</p>
-                    {selectedJob.due_date && new Date(selectedJob.due_date) < new Date() && <p className="text-xs text-red-500 font-bold mt-1">⚠️ OVERDUE</p>}
+                    {selectedJob.due_date && new Date(selectedJob.due_date) < new Date() && <p className="text-xs text-red-500 font-bold mt-1">ΓÜá∩╕Å OVERDUE</p>}
                   </div>
                   <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
                     <p className="text-xs text-gray-500 font-medium">Financial Year End</p>
@@ -478,19 +478,19 @@ export default function StaffDashboard() {
 
                 {selectedJob.job_description && (
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-                    <p className="text-xs text-blue-500 font-bold mb-2">📋 SKOP KERJA</p>
+                    <p className="text-xs text-blue-500 font-bold mb-2">≡ƒôï SKOP KERJA</p>
                     <p className="text-blue-900">{selectedJob.job_description}</p>
                   </div>
                 )}
 
                 {jobDetail && getPendingAlert(jobDetail.pendingLevel, jobDetail.pendingDays)}
 
-                {loadingDetail ? <div className="text-center py-12 text-gray-400">⏳ Loading...</div>
+                {loadingDetail ? <div className="text-center py-12 text-gray-400">ΓÅ│ Loading...</div>
                 : jobDetail && (
                   <div className="grid md:grid-cols-2 gap-6">
                     {/* Team & Hours */}
                     <div>
-                      <h3 className="font-bold text-gray-700 text-lg mb-4">👥 Team & Hours</h3>
+                      <h3 className="font-bold text-gray-700 text-lg mb-4">≡ƒæÑ Team & Hours</h3>
                       <div className="space-y-3">
                         {/* EXEC */}
                         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
@@ -516,7 +516,7 @@ export default function StaffDashboard() {
                           <div className="w-full bg-blue-200 rounded-full h-2 mt-1">
                             <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_primary}%`}}></div>
                           </div>
-                          {!canEditExec && <p className="text-xs text-gray-400 mt-1">🔒 Hanya Exec boleh edit</p>}
+                          {!canEditExec && <p className="text-xs text-gray-400 mt-1">≡ƒöÆ Hanya Exec boleh edit</p>}
                         </div>
 
                         {/* REVIEWER */}
@@ -544,7 +544,7 @@ export default function StaffDashboard() {
                             <div className="w-full bg-green-200 rounded-full h-2 mt-1">
                               <div className="bg-green-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_secondary}%`}}></div>
                             </div>
-                            {!canEditReviewer && <p className="text-xs text-gray-400 mt-1">🔒 Hanya Reviewer boleh edit</p>}
+                            {!canEditReviewer && <p className="text-xs text-gray-400 mt-1">≡ƒöÆ Hanya Reviewer boleh edit</p>}
                           </div>
                         )}
 
@@ -573,7 +573,7 @@ export default function StaffDashboard() {
                             <div className="w-full bg-purple-200 rounded-full h-2 mt-1">
                               <div className="bg-purple-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_de}%`}}></div>
                             </div>
-                            {!canEditDe && <p className="text-xs text-gray-400 mt-1">🔒 Hanya DE boleh edit</p>}
+                            {!canEditDe && <p className="text-xs text-gray-400 mt-1">≡ƒöÆ Hanya DE boleh edit</p>}
                           </div>
                         )}
 
@@ -598,17 +598,17 @@ export default function StaffDashboard() {
 
                     {/* Status Update */}
                     <div>
-                      <h3 className="font-bold text-gray-700 text-lg mb-4">📊 Kemaskini Status</h3>
+                      <h3 className="font-bold text-gray-700 text-lg mb-4">≡ƒôè Kemaskini Status</h3>
                       <div className="bg-white border rounded-xl p-5 space-y-4">
                         <div>
                           <label className="text-sm font-bold text-gray-600">Job Status</label>
                           <select value={statusForm.status} onChange={e => setStatusForm({...statusForm, status: e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2.5 text-sm">
-                            <option value="not_started">⚪ Belum Mula</option>
-                            <option value="in_progress">🔵 Dalam Proses</option>
-                            <option value="pending_client">🟡 Pending Client</option>
-                            <option value="pending_authority">🟠 Pending LHDN/Auditor</option>
-                            <option value="kiv">📌 KIV</option>
-                            <option value="completed">✅ Selesai</option>
+                            <option value="not_started">ΓÜ¬ Belum Mula</option>
+                            <option value="in_progress">≡ƒö╡ Dalam Proses</option>
+                            <option value="pending_client">≡ƒƒí Pending Client</option>
+                            <option value="pending_authority">≡ƒƒá Pending LHDN/Auditor</option>
+                            <option value="kiv">≡ƒôî KIV</option>
+                            <option value="completed">Γ£à Selesai</option>
                           </select>
                         </div>
                         <div className="bg-gray-50 rounded-lg p-3">
@@ -620,7 +620,7 @@ export default function StaffDashboard() {
                           </div>
                         </div>
                         <button onClick={updateJobStatus} disabled={updatingStatus} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 text-lg">
-                          {updatingStatus ? '⏳ Menyimpan...' : '✅ Simpan Kemaskini'}
+                          {updatingStatus ? 'ΓÅ│ Menyimpan...' : 'Γ£à Simpan Kemaskini'}
                         </button>
                       </div>
                     </div>
@@ -635,7 +635,7 @@ export default function StaffDashboard() {
                 {/* Post new instruction/reply */}
                 <div className="bg-white border rounded-xl p-4 mb-6">
                   <h3 className="font-bold text-gray-700 mb-3">
-                    {isHooOrCeo ? '📢 Hantar Instruction / Update' : '💬 Hantar Reply / Update'}
+                    {isHooOrCeo ? '≡ƒôó Hantar Instruction / Update' : '≡ƒÆ¼ Hantar Reply / Update'}
                   </h3>
                   <textarea
                     value={newInstruction.message}
@@ -649,32 +649,32 @@ export default function StaffDashboard() {
                         <div className="flex-1">
                           <label className="text-xs text-gray-500 font-medium">Jenis</label>
                           <select value={newInstruction.instruction_type} onChange={e => setNewInstruction({...newInstruction, instruction_type: e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm">
-                            <option value="instruction">📢 Instruction</option>
-                            <option value="update">🔄 Update</option>
+                            <option value="instruction">≡ƒôó Instruction</option>
+                            <option value="update">≡ƒöä Update</option>
                           </select>
                         </div>
                         <div className="flex-1">
                           <label className="text-xs text-gray-500 font-medium">Urgency</label>
                           <select value={newInstruction.urgency} onChange={e => setNewInstruction({...newInstruction, urgency: e.target.value})} className="w-full mt-1 border rounded-lg px-3 py-2 text-sm">
-                            <option value="normal">🟢 Normal</option>
-                            <option value="urgent">🟡 Urgent</option>
-                            <option value="critical">🔴 Kritikal</option>
+                            <option value="normal">≡ƒƒó Normal</option>
+                            <option value="urgent">≡ƒƒí Urgent</option>
+                            <option value="critical">≡ƒö┤ Kritikal</option>
                           </select>
                         </div>
                       </>
                     )}
                     <button onClick={postInstruction} disabled={postingInstruction || !newInstruction.message.trim()}
                       className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
-                      {postingInstruction ? '⏳ Hantar...' : '📤 Hantar'}
+                      {postingInstruction ? 'ΓÅ│ Hantar...' : '≡ƒôñ Hantar'}
                     </button>
                   </div>
                 </div>
 
                 {/* Instructions List */}
-                {loadingInstructions ? <div className="text-center py-8 text-gray-400">⏳ Loading...</div>
+                {loadingInstructions ? <div className="text-center py-8 text-gray-400">ΓÅ│ Loading...</div>
                 : instructions.length === 0 ? (
                   <div className="text-center py-12 text-gray-400">
-                    <div className="text-4xl mb-2">📭</div>
+                    <div className="text-4xl mb-2">≡ƒô¡</div>
                     <p>Tiada instruction lagi untuk job ini</p>
                   </div>
                 ) : (
@@ -686,8 +686,8 @@ export default function StaffDashboard() {
                           <div className="flex items-center gap-2 flex-wrap">
                             {getTypeBadge(inst.instruction_type)}
                             {inst.instruction_type !== 'reply' && getUrgencyBadge(inst.urgency)}
-                            {inst.status === 'resolved' && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">✅ Resolved</span>}
-                            {inst.status === 'reopened' && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">🔄 Reopened</span>}
+                            {inst.status === 'resolved' && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Γ£à Resolved</span>}
+                            {inst.status === 'reopened' && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">≡ƒöä Reopened</span>}
                           </div>
                           <span className="text-xs text-gray-400">{new Date(inst.created_at).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
@@ -703,7 +703,7 @@ export default function StaffDashboard() {
 
                         {/* Resolved info */}
                         {inst.status === 'resolved' && inst.resolved_by_profile && (
-                          <p className="text-xs text-green-600 mb-2">✅ Resolved oleh {inst.resolved_by_profile.full_name} pada {new Date(inst.resolved_at).toLocaleDateString('ms-MY')}</p>
+                          <p className="text-xs text-green-600 mb-2">Γ£à Resolved oleh {inst.resolved_by_profile.full_name} pada {new Date(inst.resolved_at).toLocaleDateString('ms-MY')}</p>
                         )}
 
                         {/* Action buttons */}
@@ -711,13 +711,13 @@ export default function StaffDashboard() {
                           {/* Exec can resolve open instructions */}
                           {isExec && inst.instruction_type === 'instruction' && inst.status === 'open' && (
                             <button onClick={() => resolveInstruction(inst.id)} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 font-medium">
-                              ✅ Mark Resolved
+                              Γ£à Mark Resolved
                             </button>
                           )}
                           {/* HOO/CEO can reopen resolved instructions */}
                           {isHooOrCeo && inst.status === 'resolved' && (
                             <button onClick={() => reopenInstruction(inst.id)} className="text-xs bg-orange-500 text-white px-3 py-1.5 rounded-lg hover:bg-orange-600 font-medium">
-                              🔄 Reopen
+                              ≡ƒöä Reopen
                             </button>
                           )}
                         </div>
