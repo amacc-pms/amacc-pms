@@ -244,7 +244,7 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
       .select('*, jobs(invoice_value, assigned_exec, assigned_reviewer, assigned_de)')
       .eq('staff_id', profile.id)
       .gte('log_date', `${selectedMonth}-01`)
-      .lte('log_date', `${selectedMonth}-31`)
+      .lt('log_date', `${selectedMonth.slice(0,4)}-${String(parseInt(selectedMonth.slice(5,7))+1).padStart(2,'0')}-01`)
     const hoursLogged = (logs || []).reduce((s, l) => s + (l.hours_logged || 0), 0)
     const daysLogged = new Set((logs || []).map(l => l.log_date)).size
     let revenueEarned = 0
