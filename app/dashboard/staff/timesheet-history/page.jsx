@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { supabase } from '../../../../lib/supabase'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 function TimesheetHistoryContent() {
+  const supabase = createClientComponentClient()
   const router = useRouter()
   const searchParams = useSearchParams()
   const jobId = searchParams.get('job')
@@ -62,15 +63,13 @@ function TimesheetHistoryContent() {
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', padding: '20px 16px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-          <div>
-            <button onClick={() => router.back()}
-              style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8, display: 'block' }}>
-              ← Balik
-            </button>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', margin: 0 }}>📊 History Timesheet</h1>
-            {job && <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 14 }}>{job.clients?.company_name} — {job.invoice_number} • {job.service_type}</p>}
-          </div>
+        <div style={{ marginBottom: 24 }}>
+          <button onClick={() => router.back()}
+            style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8, display: 'block' }}>
+            ← Balik
+          </button>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', margin: 0 }}>📊 History Timesheet</h1>
+          {job && <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 14 }}>{job.clients?.company_name} — {job.invoice_number} • {job.service_type}</p>}
         </div>
 
         {/* Staff Summary */}
