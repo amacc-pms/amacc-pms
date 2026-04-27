@@ -397,6 +397,12 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
                 </div>
               )}
             </div>
+            {profile?.role === 'hoo' && (
+              <button onClick={() => router.push('/dashboard/hoo')}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569' }}>
+                🔙 HOO Dashboard
+              </button>
+            )}
             <button onClick={() => router.push('/dashboard/staff/osm')}
               style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, padding: '8px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569' }}>
               📋 OSM
