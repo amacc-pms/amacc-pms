@@ -499,7 +499,7 @@ if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
             <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>Tiada job aktif</p>
           ) : (
             <div style={{ display: 'grid', gap: 10 }}>
-              {filteredJobs.map(job => (
+              {filteredJobs.map(job => 
                 <div key={job.id} style={{ background: '#f8fafc', borderRadius: 10, padding: 12, border: '1px solid #e2e8f0' }}>
                   <p style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', margin: '0 0 8px' }}>
                     {job.clients?.company_name} <span style={{ color: '#94a3b8', fontWeight: 400 }}>— {job.invoice_number}</span>
@@ -809,7 +809,7 @@ function JobCard({ job, profile, onClick, today, statusLabel, statusColor }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div>
           <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{job.clients?.company_name}</p>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{job.invoice_number} • {job.service_type}</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{job.invoice_number} • {job.service_type}{job.financial_year_end ? ` • FYE: ${job.financial_year_end}` : ''}</p>
         </div>
         <div style={{ textAlign: 'right' }}>
           <span style={{ background: statusColor(job.status) + '20', color: statusColor(job.status), fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 20 }}>
