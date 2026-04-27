@@ -83,6 +83,15 @@ export default function StaffDashboard() {
       .not('status', 'eq', 'completed')
       .limit(1)
     if (!activeJobs || activeJobs.length === 0) return
+    const yesterdayDay = new Date(yesterday).getDay()
+    if (yesterdayDay === 0 || yesterdayDay === 6) return // Skip weekend
+const { data: unlockedByHOO } = await supabase
+  .from('timesheet_unlocks')
+  .select('id')
+  .eq('staff_id', userId)
+  .eq('unlock_date', today)
+  .single()
+if (unlockedByHOO) return // HOO dah unlock & Sabtu (6)
     const { data: yesterdayLog } = await supabase
       .from('timesheets')
       .select('id')
