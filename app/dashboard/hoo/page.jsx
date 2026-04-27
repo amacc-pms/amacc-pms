@@ -18,12 +18,13 @@ export default function HOODashboard() {
   const [instructions, setInstructions] = useState([])
   const [assignHistory, setAssignHistory] = useState([])
   const [dueDateHistory, setDueDateHistory] = useState([])
+  const [fyeHistory, setFyeHistory] = useState([])
   const [jobTimesheets, setJobTimesheets] = useState([])
   const [newInstruction, setNewInstruction] = useState('')
   const [newUrgency, setNewUrgency] = useState('normal')
   const [sendingInstr, setSendingInstr] = useState(false)
   const [assigning, setAssigning] = useState(false)
-  const [assignData, setAssignData] = useState({ assigned_exec: '', assigned_reviewer: '', assigned_de: '', has_de: false, budgeted_hours: 80, due_date: '', due_date_reason: '' })
+  const [assignData, setAssignData] = useState({ assigned_exec: '', assigned_reviewer: '', assigned_de: '', has_de: false, budgeted_hours: 80, due_date: '', due_date_reason: '', financial_year_end: '', fye_reason: '', financial_year_end: '', fye_reason: '' })
   const [searchText, setSearchText] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterDiv, setFilterDiv] = useState('')
@@ -103,12 +104,14 @@ export default function HOODashboard() {
     setAssignHistory(history || [])
     const { data: ddHistory } = await supabase.from('due_date_history').select('*, profiles(full_name)').eq('job_id', job.id).order('created_at', { ascending: false })
     setDueDateHistory(ddHistory || [])
+    const { data: fyeHist } = await supabase.from('fye_history').select('*').eq('job_id', job.id).order('created_at', { ascending: false })
+    setFyeHistory(fyeHist || [])
   }
 
   function openAssign(job, e) {
     if (e) e.stopPropagation()
     setSelectedJob(job)
-    setAssignData({ assigned_exec: job.assigned_exec || '', assigned_reviewer: job.assigned_reviewer || '', assigned_de: job.assigned_de || '', has_de: !!job.assigned_de, budgeted_hours: job.budgeted_hours || 80, due_date: job.due_date || '', due_date_reason: '' })
+    assigned_exec: '', assigned_reviewer: '', assigned_de: '', has_de: false, budgeted_hours: 80, due_date: '', due_date_reason: '', financial_year_end: '', fye_reason: ''
     setAssigning(true)
   }
 
@@ -131,6 +134,16 @@ export default function HOODashboard() {
         reason: assignData.due_date_reason || 'Dikemaskini oleh HOO'
       })
     }
+    if (assignData.financial_year_end && assignData.financial_year_end !== selectedJob.financial_year_end) {
+      await supabase.from('fye_history').insert({
+        job_id: selectedJob.id,
+        old_fye: selectedJob.financial_year_end || null,
+        new_fye: assignData.financial_year_end,
+        changed_by: profile.id,
+        changed_by_name: profile.full_name,
+        reason: assignData.fye_reason || 'Dikemaskini oleh HOO'
+      })
+    }
 
     if (selectedJob.assigned_exec) {
       await supabase.from('job_assignment_history').update({ ended_at: now.toISOString() }).eq('job_id', selectedJob.id).is('ended_at', null)
@@ -138,6 +151,7 @@ export default function HOODashboard() {
     await supabase.from('job_assignment_history').insert({ job_id: selectedJob.id, exec_id: assignData.assigned_exec, reviewer_id: assignData.assigned_reviewer || assignData.assigned_exec, data_entry_id: assignData.has_de ? assignData.assigned_de : null, assigned_by: profile.id, assigned_at: now.toISOString(), month_year: monthYear, exec_name: execProfile?.full_name || '', reviewer_name: reviewerProfile?.full_name || '', data_entry_name: deProfile?.full_name || null })
     const updates = { assigned_exec: assignData.assigned_exec, assigned_reviewer: assignData.assigned_reviewer || assignData.assigned_exec, assigned_de: assignData.has_de ? assignData.assigned_de : null, budgeted_hours: assignData.budgeted_hours, status: 'in_progress' }
     if (assignData.due_date) updates.due_date = assignData.due_date
+    if (assignData.financial_year_end) updates.financial_year_end = assignData.financial_year_end
     const { error } = await supabase.from('jobs').update(updates).eq('id', selectedJob.id)
     if (error) { alert('Error: ' + error.message); return }
     alert('✅ Assignment berjaya!')
@@ -571,6 +585,20 @@ export default function HOODashboard() {
                     </div>
                   ))}
 
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', margin: '20px 0 12px' }}>📆 History Tukar FYE</p>
+                  {fyeHistory.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 20 }}>Tiada perubahan FYE</p>
+                  ) : fyeHistory.map((h, i) => (
+                    <div key={i} style={{ background: '#eff6ff', borderRadius: 10, padding: 12, marginBottom: 8, border: '1px solid #bfdbfe' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#1e40af' }}>
+                          {h.old_fye || 'Tiada'} → {h.new_fye}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>{new Date(h.created_at).toLocaleDateString('ms-MY')}</span>
+                      </div>
+                      <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>Oleh: {h.changed_by_name} {h.reason ? `— ${h.reason}` : ''}</p>
+                    </div>
+                  ))}
                   <p style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', margin: '20px 0 12px' }}>👥 History Assignment</p>
                   {assignHistory.length === 0 ? (
                     <p style={{ color: '#94a3b8', fontSize: 13 }}>Tiada history assignment</p>
@@ -647,6 +675,20 @@ export default function HOODashboard() {
                   <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Sebab Tukar Due Date</label>
                   <input type="text" value={assignData.due_date_reason} onChange={e => setAssignData({...assignData, due_date_reason: e.target.value})}
                     placeholder="Contoh: Client minta extend, audit delay..."
+                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #fde68a', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: '#fffbeb' }} />
+                </div>
+              )}
+              <div>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Financial Year End</label>
+                <input type="text" value={assignData.financial_year_end} onChange={e => setAssignData({...assignData, financial_year_end: e.target.value})}
+                  placeholder="Contoh: 31-Dec-24"
+                  style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              {assignData.financial_year_end && assignData.financial_year_end !== selectedJob.financial_year_end && (
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Sebab Tukar FYE</label>
+                  <input type="text" value={assignData.fye_reason} onChange={e => setAssignData({...assignData, fye_reason: e.target.value})}
+                    placeholder="Contoh: Client tukar FYE..."
                     style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #fde68a', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: '#fffbeb' }} />
                 </div>
               )}
