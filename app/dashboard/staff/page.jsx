@@ -20,7 +20,12 @@ export default function StaffDashboard() {
   const [jobDetail, setJobDetail] = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
-  const [statusForm, setStatusForm] = useState({ status: '', progress_primary: 0, progress_secondary: 0 })
+  const [statusForm, setStatusForm] = useState({ 
+    status: '', 
+    progress_primary: 0, 
+    progress_secondary: 0,
+    progress_de: 0
+  })
   const router = useRouter()
 
   const today = new Date().toISOString().split('T')[0]
@@ -33,7 +38,7 @@ export default function StaffDashboard() {
     if (!user) { router.push('/'); return }
     const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (!prof) { router.push('/'); return }
-    if (!['staff', 'hoo', 'ceo'].includes(prof.role)) { router.push('/'); return }
+    if (!['staff', 'hoo', 'hoo_mp', 'ceo'].includes(prof.role)) { router.push('/'); return }
     setProfile(prof)
     await checkHardBlock(prof)
     await loadJobs(prof.id)
@@ -144,9 +149,9 @@ export default function StaffDashboard() {
       status: job.status || 'in_progress',
       progress_primary: job.completion_percentage || 0,
       progress_secondary: job.completion_secondary || 0,
+      progress_de: job.completion_de || 0,
     })
 
-    // Load exec, reviewer, DE profiles + their hours
     const [execRes, reviewerRes, deRes, execHoursRes, reviewerHoursRes, deHoursRes] = await Promise.all([
       job.assigned_exec ? supabase.from('profiles').select('full_name').eq('id', job.assigned_exec).single() : Promise.resolve({ data: null }),
       job.assigned_reviewer ? supabase.from('profiles').select('full_name').eq('id', job.assigned_reviewer).single() : Promise.resolve({ data: null }),
@@ -162,7 +167,6 @@ export default function StaffDashboard() {
     const deHours = sumHours(deHoursRes.data)
     const totalHours = execHours + (job.assigned_reviewer !== job.assigned_exec ? reviewerHours : 0) + deHours
 
-    // Pending client alert level
     let pendingDays = 0
     let pendingLevel = null
     if (job.status === 'pending_client' && job.updated_at) {
@@ -174,6 +178,9 @@ export default function StaffDashboard() {
     }
 
     setJobDetail({
+      execId: job.assigned_exec,
+      reviewerId: job.assigned_reviewer,
+      deId: job.assigned_de,
       exec: execRes.data?.full_name || '-',
       reviewer: reviewerRes.data?.full_name || '-',
       de: deRes.data?.full_name || '-',
@@ -190,6 +197,8 @@ export default function StaffDashboard() {
     await supabase.from('jobs').update({
       status: statusForm.status,
       completion_percentage: statusForm.progress_primary,
+      completion_secondary: statusForm.progress_secondary,
+      completion_de: statusForm.progress_de,
       updated_at: new Date().toISOString(),
     }).eq('id', selectedJob.id)
     setMessage('✅ Status job berjaya dikemaskini!')
@@ -243,8 +252,13 @@ export default function StaffDashboard() {
       kiv: { bg: 'bg-purple-50', border: 'border-purple-300', text: 'text-purple-700', label: `📌 Pending Client ${days} hari — Akan masuk KIV automatik` },
     }
     const c = configs[level]
-    return <div className={`${c.bg} border ${c.border} rounded-lg p-3 mb-3`}><p className={`text-sm font-medium ${c.text}`}>{c.label}</p></div>
+    return <div className={`${c.bg} border ${c.border} rounded-lg p-3 mb-4`}><p className={`text-sm font-medium ${c.text}`}>{c.label}</p></div>
   }
+
+  // Determine which sliders current user can edit
+  const canEditExec = jobDetail && profile && jobDetail.execId === profile.id
+  const canEditReviewer = jobDetail && profile && jobDetail.reviewerId === profile.id && !jobDetail.isSolo
+  const canEditDe = jobDetail && profile && jobDetail.deId === profile.id
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="text-gray-500">Loading...</div></div>
 
@@ -334,41 +348,26 @@ export default function StaffDashboard() {
             {aktifJobs.length === 0
               ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs aktif</div>
               : aktifJobs.map(job => (
-              <div key={job.id} className="bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all">
+              <div key={job.id} className="bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer" onClick={() => openJobDetail(job)}>
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <button
-                      onClick={() => openJobDetail(job)}
-                      className="font-bold text-blue-600 hover:text-blue-800 hover:underline text-left"
-                    >
-                      {job.clients?.company_name}
-                    </button>
+                    <h3 className="font-bold text-blue-600 hover:text-blue-800">{job.clients?.company_name}</h3>
                     <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
                     <p className="text-green-600 font-bold text-sm">RM {Number(job.invoice_value || 0).toLocaleString()}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-xs text-gray-500">Due: {job.due_date ? new Date(job.due_date).toLocaleDateString('ms-MY') : '-'}</span>
                     {job.due_date && new Date(job.due_date) < new Date() && <div className="text-xs text-red-500 font-medium">⚠️ OVERDUE</div>}
-                    <button
-                      onClick={() => openJobDetail(job)}
-                      className="mt-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100"
-                    >
-                      Lihat Detail →
-                    </button>
+                    <div className="mt-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded">Lihat Detail →</div>
                   </div>
                 </div>
                 {job.job_description && <div className="bg-gray-50 rounded p-2 text-sm text-gray-600">📋 {job.job_description}</div>}
-                {job.status && (
+                {job.completion_percentage > 0 && (
                   <div className="mt-2">
-                    <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">{getStatusLabel(job.status)}</span>
-                    {job.completion_percentage > 0 && (
-                      <div className="mt-1">
-                        <div className="w-full bg-gray-200 rounded-full h-1.5">
-                          <div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${job.completion_percentage}%`}}></div>
-                        </div>
-                        <span className="text-xs text-gray-500">{job.completion_percentage}% siap</span>
-                      </div>
-                    )}
+                    <div className="w-full bg-gray-200 rounded-full h-1.5">
+                      <div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${job.completion_percentage}%`}}></div>
+                    </div>
+                    <span className="text-xs text-gray-500">{job.completion_percentage}% siap</span>
                   </div>
                 )}
               </div>
@@ -418,8 +417,8 @@ export default function StaffDashboard() {
             {kivJobs.length === 0
               ? <div className="bg-white rounded-lg border p-8 text-center text-gray-400">Tiada jobs KIV</div>
               : kivJobs.map(job => (
-              <div key={job.id} className="bg-white rounded-lg border border-yellow-200 p-4">
-                <button onClick={() => openJobDetail(job)} className="font-bold text-blue-600 hover:underline">{job.clients?.company_name}</button>
+              <div key={job.id} onClick={() => openJobDetail(job)} className="bg-white rounded-lg border border-yellow-200 p-4 cursor-pointer hover:shadow-sm">
+                <h3 className="font-bold text-blue-600">{job.clients?.company_name}</h3>
                 <p className="text-sm text-gray-500">{job.invoice_number} • {job.service_type}</p>
                 <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">KIV</span>
               </div>
@@ -428,135 +427,201 @@ export default function StaffDashboard() {
         )}
       </div>
 
-      {/* JOB DETAIL MODAL */}
+      {/* FULLSCREEN JOB DETAIL MODAL */}
       {selectedJob && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="bg-blue-600 text-white px-6 py-4 rounded-t-2xl flex justify-between items-start">
-              <div>
-                <h2 className="text-lg font-bold">{selectedJob.clients?.company_name}</h2>
-                <p className="text-blue-200 text-sm">{selectedJob.invoice_number} • {selectedJob.service_type}</p>
+        <div className="fixed inset-0 bg-white z-50 overflow-y-auto">
+          {/* Modal Header */}
+          <div className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-10">
+            <div>
+              <h2 className="text-xl font-bold">{selectedJob.clients?.company_name}</h2>
+              <p className="text-blue-200 text-sm">{selectedJob.invoice_number} • {selectedJob.service_type}</p>
+            </div>
+            <button onClick={() => { setSelectedJob(null); setJobDetail(null) }} className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50">✕ Tutup</button>
+          </div>
+
+          <div className="max-w-4xl mx-auto p-6">
+            {/* Job Info Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <p className="text-xs text-green-500 font-medium">Invoice Value</p>
+                <p className="text-xl font-bold text-green-700">RM {Number(selectedJob.invoice_value || 0).toLocaleString()}</p>
               </div>
-              <button onClick={() => { setSelectedJob(null); setJobDetail(null) }} className="text-white hover:text-blue-200 text-2xl leading-none">×</button>
+              <div className={`rounded-xl p-4 border ${selectedJob.due_date && new Date(selectedJob.due_date) < new Date() ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                <p className="text-xs text-gray-500 font-medium">Due Date</p>
+                <p className="font-bold text-gray-800">{selectedJob.due_date ? new Date(selectedJob.due_date).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}</p>
+                {selectedJob.due_date && new Date(selectedJob.due_date) < new Date() && <p className="text-xs text-red-500 font-bold mt-1">⚠️ OVERDUE</p>}
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                <p className="text-xs text-gray-500 font-medium">Financial Year End</p>
+                <p className="font-bold text-gray-800">{selectedJob.financial_year_end || '-'}</p>
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                <p className="text-xs text-gray-500 font-medium">Budget Hours</p>
+                <p className="font-bold text-gray-800">{selectedJob.budgeted_hours || '-'} jam</p>
+              </div>
             </div>
 
-            <div className="p-6">
-              {/* Job Info */}
-              <div className="grid grid-cols-2 gap-3 mb-5">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500">Invoice Value</p>
-                  <p className="font-bold text-green-600">RM {Number(selectedJob.invoice_value || 0).toLocaleString()}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500">Due Date</p>
-                  <p className="font-medium text-gray-800">{selectedJob.due_date ? new Date(selectedJob.due_date).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}</p>
-                  {selectedJob.due_date && new Date(selectedJob.due_date) < new Date() && <p className="text-xs text-red-500 font-medium">⚠️ OVERDUE</p>}
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500">Financial Year End</p>
-                  <p className="font-medium text-gray-800">{selectedJob.financial_year_end || '-'}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500">Budgeted Hours</p>
-                  <p className="font-medium text-gray-800">{selectedJob.budgeted_hours || '-'} jam</p>
-                </div>
+            {/* Job Description */}
+            {selectedJob.job_description && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                <p className="text-xs text-blue-500 font-bold mb-2">📋 SKOP KERJA</p>
+                <p className="text-blue-900">{selectedJob.job_description}</p>
               </div>
+            )}
 
-              {/* Job Description */}
-              {selectedJob.job_description && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-5">
-                  <p className="text-xs text-blue-500 font-medium mb-1">📋 Skop Kerja</p>
-                  <p className="text-sm text-blue-800">{selectedJob.job_description}</p>
-                </div>
-              )}
+            {/* Pending Alert */}
+            {jobDetail && getPendingAlert(jobDetail.pendingLevel, jobDetail.pendingDays)}
 
-              {/* Pending Client Alert */}
-              {jobDetail && getPendingAlert(jobDetail.pendingLevel, jobDetail.pendingDays)}
+            {loadingDetail ? (
+              <div className="text-center py-12 text-gray-400">
+                <div className="text-4xl mb-2">⏳</div>
+                <p>Loading details...</p>
+              </div>
+            ) : jobDetail && (
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* LEFT: Team & Hours */}
+                <div>
+                  <h3 className="font-bold text-gray-700 text-lg mb-4">👥 Team & Hours</h3>
+                  <div className="space-y-3">
 
-              {loadingDetail ? (
-                <div className="text-center py-4 text-gray-400">Loading details...</div>
-              ) : jobDetail && (
-                <>
-                  {/* Team & Hours */}
-                  <div className="mb-5">
-                    <h3 className="font-bold text-gray-700 mb-3">👥 Team & Hours</h3>
-                    <div className="space-y-2">
-                      {/* Exec */}
-                      <div className="flex items-center justify-between bg-blue-50 rounded-lg p-3">
+                    {/* EXEC CARD */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                      <div className="flex justify-between items-start mb-3">
                         <div>
-                          <p className="text-xs text-blue-500 font-medium">Exec {jobDetail.isSolo ? '(Solo)' : ''}</p>
-                          <p className="font-medium text-gray-800">{jobDetail.exec}</p>
+                          <p className="text-xs text-blue-500 font-bold">EXEC {jobDetail.isSolo ? '(SOLO)' : ''}</p>
+                          <p className="font-bold text-gray-800">{jobDetail.exec}</p>
+                          <p className="text-xs text-blue-600">{jobDetail.isSolo ? '80%' : '75%'} revenue</p>
                         </div>
                         <div className="text-right">
                           <p className="text-xs text-gray-500">Hours logged</p>
-                          <p className="font-bold text-blue-600">{jobDetail.execHours.toFixed(1)} jam</p>
-                          <p className="text-xs text-gray-400">{jobDetail.isSolo ? '80%' : '75%'} revenue</p>
+                          <p className="text-xl font-bold text-blue-600">{jobDetail.execHours.toFixed(1)}</p>
+                          <p className="text-xs text-gray-400">jam</p>
                         </div>
                       </div>
-
-                      {/* Reviewer */}
-                      {!jobDetail.isSolo && (
-                        <div className="flex items-center justify-between bg-green-50 rounded-lg p-3">
-                          <div>
-                            <p className="text-xs text-green-500 font-medium">Reviewer</p>
-                            <p className="font-medium text-gray-800">{jobDetail.reviewer}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-gray-500">Hours logged</p>
-                            <p className="font-bold text-green-600">{jobDetail.reviewerHours.toFixed(1)} jam</p>
-                            <p className="text-xs text-gray-400">20% revenue</p>
-                          </div>
+                      {/* Exec Slider */}
+                      <div>
+                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                          <span>Progress (Primary)</span>
+                          <span className="font-bold text-blue-600">{statusForm.progress_primary}%</span>
                         </div>
-                      )}
-
-                      {/* DE */}
-                      {selectedJob.assigned_de && (
-                        <div className="flex items-center justify-between bg-purple-50 rounded-lg p-3">
-                          <div>
-                            <p className="text-xs text-purple-500 font-medium">Data Entry</p>
-                            <p className="font-medium text-gray-800">{jobDetail.de}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs text-gray-500">Hours logged</p>
-                            <p className="font-bold text-purple-600">{jobDetail.deHours.toFixed(1)} jam</p>
-                            <p className="text-xs text-gray-400">5% revenue</p>
-                          </div>
+                        <input
+                          type="range" min="0" max="100" step="5"
+                          value={statusForm.progress_primary}
+                          onChange={e => canEditExec && setStatusForm({...statusForm, progress_primary: Number(e.target.value)})}
+                          disabled={!canEditExec}
+                          className={`w-full accent-blue-500 ${!canEditExec ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                        />
+                        <div className="w-full bg-blue-200 rounded-full h-2 mt-1">
+                          <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_primary}%`}}></div>
                         </div>
-                      )}
-
-                      {/* Total */}
-                      <div className="flex items-center justify-between bg-gray-100 rounded-lg p-3">
-                        <p className="font-medium text-gray-700">Total Hours</p>
-                        <div className="text-right">
-                          <p className="font-bold text-gray-800">{jobDetail.totalHours.toFixed(1)} jam</p>
-                          {selectedJob.budgeted_hours && (
-                            <div>
-                              <div className="w-24 bg-gray-300 rounded-full h-1.5 mt-1">
-                                <div
-                                  className={`h-1.5 rounded-full ${jobDetail.totalHours / selectedJob.budgeted_hours > 0.8 ? 'bg-red-500' : 'bg-green-500'}`}
-                                  style={{width: `${Math.min(100, (jobDetail.totalHours / selectedJob.budgeted_hours) * 100)}%`}}
-                                ></div>
-                              </div>
-                              <p className="text-xs text-gray-400">{jobDetail.totalHours.toFixed(1)} / {selectedJob.budgeted_hours} jam budget</p>
-                            </div>
-                          )}
-                        </div>
+                        {!canEditExec && <p className="text-xs text-gray-400 mt-1">🔒 Hanya Exec boleh edit</p>}
                       </div>
                     </div>
+
+                    {/* REVIEWER CARD */}
+                    {!jobDetail.isSolo && (
+                      <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <p className="text-xs text-green-500 font-bold">REVIEWER</p>
+                            <p className="font-bold text-gray-800">{jobDetail.reviewer}</p>
+                            <p className="text-xs text-green-600">20% revenue</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500">Hours logged</p>
+                            <p className="text-xl font-bold text-green-600">{jobDetail.reviewerHours.toFixed(1)}</p>
+                            <p className="text-xs text-gray-400">jam</p>
+                          </div>
+                        </div>
+                        {/* Reviewer Slider */}
+                        <div>
+                          <div className="flex justify-between text-xs text-gray-500 mb-1">
+                            <span>Progress (Secondary)</span>
+                            <span className="font-bold text-green-600">{statusForm.progress_secondary}%</span>
+                          </div>
+                          <input
+                            type="range" min="0" max="100" step="5"
+                            value={statusForm.progress_secondary}
+                            onChange={e => canEditReviewer && setStatusForm({...statusForm, progress_secondary: Number(e.target.value)})}
+                            disabled={!canEditReviewer}
+                            className={`w-full accent-green-500 ${!canEditReviewer ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                          />
+                          <div className="w-full bg-green-200 rounded-full h-2 mt-1">
+                            <div className="bg-green-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_secondary}%`}}></div>
+                          </div>
+                          {!canEditReviewer && <p className="text-xs text-gray-400 mt-1">🔒 Hanya Reviewer boleh edit</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* DE CARD */}
+                    {selectedJob.assigned_de && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <p className="text-xs text-purple-500 font-bold">DATA ENTRY</p>
+                            <p className="font-bold text-gray-800">{jobDetail.de}</p>
+                            <p className="text-xs text-purple-600">5% revenue</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500">Hours logged</p>
+                            <p className="text-xl font-bold text-purple-600">{jobDetail.deHours.toFixed(1)}</p>
+                            <p className="text-xs text-gray-400">jam</p>
+                          </div>
+                        </div>
+                        {/* DE Slider */}
+                        <div>
+                          <div className="flex justify-between text-xs text-gray-500 mb-1">
+                            <span>Progress (DE)</span>
+                            <span className="font-bold text-purple-600">{statusForm.progress_de}%</span>
+                          </div>
+                          <input
+                            type="range" min="0" max="100" step="5"
+                            value={statusForm.progress_de}
+                            onChange={e => canEditDe && setStatusForm({...statusForm, progress_de: Number(e.target.value)})}
+                            disabled={!canEditDe}
+                            className={`w-full accent-purple-500 ${!canEditDe ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                          />
+                          <div className="w-full bg-purple-200 rounded-full h-2 mt-1">
+                            <div className="bg-purple-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_de}%`}}></div>
+                          </div>
+                          {!canEditDe && <p className="text-xs text-gray-400 mt-1">🔒 Hanya DE boleh edit</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* TOTAL HOURS */}
+                    <div className="bg-gray-100 rounded-xl p-4">
+                      <div className="flex justify-between items-center">
+                        <p className="font-bold text-gray-700">Total Hours</p>
+                        <p className="text-2xl font-bold text-gray-800">{jobDetail.totalHours.toFixed(1)} <span className="text-sm font-normal text-gray-500">jam</span></p>
+                      </div>
+                      {selectedJob.budgeted_hours && (
+                        <div className="mt-2">
+                          <div className="w-full bg-gray-300 rounded-full h-3">
+                            <div
+                              className={`h-3 rounded-full transition-all ${jobDetail.totalHours / selectedJob.budgeted_hours > 0.8 ? 'bg-red-500' : 'bg-green-500'}`}
+                              style={{width: `${Math.min(100, (jobDetail.totalHours / selectedJob.budgeted_hours) * 100)}%`}}
+                            ></div>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">{jobDetail.totalHours.toFixed(1)} / {selectedJob.budgeted_hours} jam budget ({Math.round((jobDetail.totalHours / selectedJob.budgeted_hours) * 100)}%)</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                </div>
 
-                  {/* Update Status */}
-                  <div className="border-t pt-4">
-                    <h3 className="font-bold text-gray-700 mb-3">📊 Kemaskini Status</h3>
-
+                {/* RIGHT: Update Status */}
+                <div>
+                  <h3 className="font-bold text-gray-700 text-lg mb-4">📊 Kemaskini Status</h3>
+                  <div className="bg-white border rounded-xl p-5 space-y-4">
                     {/* Job Status */}
-                    <div className="mb-3">
-                      <label className="text-xs text-gray-500 font-medium">Job Status</label>
+                    <div>
+                      <label className="text-sm font-bold text-gray-600">Job Status</label>
                       <select
                         value={statusForm.status}
                         onChange={e => setStatusForm({...statusForm, status: e.target.value})}
-                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        className="w-full mt-1 border rounded-lg px-3 py-2.5 text-sm"
                       >
                         <option value="not_started">⚪ Belum Mula</option>
                         <option value="in_progress">🔵 Dalam Proses</option>
@@ -567,34 +632,40 @@ export default function StaffDashboard() {
                       </select>
                     </div>
 
-                    {/* Progress Primary Slider (Exec) */}
-                    <div className="mb-3">
-                      <label className="text-xs text-gray-500 font-medium">Job Progress (Primary) — {statusForm.progress_primary}%</label>
-                      <input
-                        type="range" min="0" max="100" step="5"
-                        value={statusForm.progress_primary}
-                        onChange={e => setStatusForm({...statusForm, progress_primary: Number(e.target.value)})}
-                        className="w-full mt-1 accent-blue-500"
-                      />
-                      <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
-                        <div className="bg-blue-500 h-2 rounded-full transition-all" style={{width: `${statusForm.progress_primary}%`}}></div>
-                      </div>
-                      <div className="flex justify-between text-xs text-gray-400 mt-1">
-                        <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+                    {/* Overall Progress Summary */}
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <p className="text-xs font-bold text-gray-500 mb-2">RINGKASAN PROGRESS</p>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-blue-600">Primary (Exec)</span>
+                          <span className="font-bold">{statusForm.progress_primary}%</span>
+                        </div>
+                        {!jobDetail.isSolo && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-green-600">Secondary (Reviewer)</span>
+                            <span className="font-bold">{statusForm.progress_secondary}%</span>
+                          </div>
+                        )}
+                        {selectedJob.assigned_de && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-purple-600">DE Progress</span>
+                            <span className="font-bold">{statusForm.progress_de}%</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     <button
                       onClick={updateJobStatus}
                       disabled={updatingStatus}
-                      className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
+                      className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 text-lg"
                     >
-                      {updatingStatus ? 'Menyimpan...' : '✅ Simpan Kemaskini'}
+                      {updatingStatus ? '⏳ Menyimpan...' : '✅ Simpan Kemaskini'}
                     </button>
                   </div>
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
