@@ -37,7 +37,7 @@ export default function LoginPage() {
 
     if (profile.role === 'ceo') {
       router.push('/dashboard/ceo')
-    } else if (profile.role === 'hoo') {
+    } else if (profile.role === 'hoo' || profile.role === 'hoo_mp') {
       router.push('/dashboard/hoo')
     } else if (profile.role === 'assigner') {
       router.push('/dashboard/assigner')
