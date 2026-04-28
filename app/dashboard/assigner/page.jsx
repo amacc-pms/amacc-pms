@@ -67,24 +67,21 @@ export default function AssignerDashboard() {
     }
     setProfile(prof)
 
-    // Load HOOs
     const { data: hoos } = await supabase
       .from('profiles')
-      .select('id, name, role, division')
+      .select('id, full_name, role, division')
       .in('role', ['hoo', 'hoo_mp'])
-      .eq('status', 'active')
-      .order('name')
+      .eq('is_active', true)
+      .order('full_name')
     setHooList(hoos || [])
 
-    // Load all staff
     const { data: staffs } = await supabase
       .from('profiles')
-      .select('id, name')
-      .eq('status', 'active')
-      .order('name')
+      .select('id, full_name')
+      .eq('is_active', true)
+      .order('full_name')
     setStaffList(staffs || [])
 
-    // Load existing clients
     const { data: cls } = await supabase
       .from('clients')
       .select('id, company_name')
@@ -98,9 +95,8 @@ export default function AssignerDashboard() {
   async function fetchLeads() {
     const { data, error } = await supabase
       .from('leads')
-      .select('*, assigned_profile:assigned_to(name), creator:created_by(name)')
+      .select('*, assigned_profile:assigned_to(full_name), creator:created_by(full_name)')
       .order('created_at', { ascending: false })
-    console.log('leads:', data, 'error:', error)
     if (!error) setLeads(data || [])
   }
 
@@ -140,13 +136,12 @@ export default function AssignerDashboard() {
   }
 
   async function saveLead() {
-    if (!form.client_name.trim() && clientType === 'new') {
+    if (clientType === 'new' && !form.client_name.trim()) {
       alert('Masukkan nama client!'); return
     }
     if (clientType === 'existing' && !form.existing_client_id) {
       alert('Pilih client!'); return
     }
-
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -183,18 +178,12 @@ export default function AssignerDashboard() {
       error = e
     }
 
-    if (error) {
-      alert('Error: ' + error.message)
-      setSaving(false)
-      return
-    }
-
+    if (error) { alert('Error: ' + error.message); setSaving(false); return }
     setSaving(false)
     setShowModal(false)
     await fetchLeads()
   }
 
-  // Metrics
   const totalLeads = leads.length
   const totalQuotation = leads.reduce((s, l) => s + (parseFloat(l.quotation_amount) || 0), 0)
   const totalDeposit = leads.reduce((s, l) => s + (parseFloat(l.deposit_amount) || 0), 0)
@@ -213,7 +202,7 @@ export default function AssignerDashboard() {
       <div style={{ background: 'white', padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 20 }}>AMACC PMS</div>
-          <div style={{ fontSize: 13, color: '#64748b' }}>{profile?.name} • CRM Pipeline</div>
+          <div style={{ fontSize: 13, color: '#64748b' }}>{profile?.full_name} • CRM Pipeline</div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={openNew}
@@ -282,7 +271,7 @@ export default function AssignerDashboard() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontWeight: 700, fontSize: 16 }}>{lead.client_name}</span>
                         <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: lead.existing_client_id ? '#dbeafe' : '#dcfce7', color: lead.existing_client_id ? '#1d4ed8' : '#16a34a' }}>
-                          {lead.existing_client_id ? 'Existing' : 'New'}
+                          {lead.existing_client_id ? '🏢 Existing' : '🆕 New'}
                         </span>
                       </div>
                       <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -297,11 +286,11 @@ export default function AssignerDashboard() {
                         {stage?.label}
                       </span>
                       {lead.quotation_amount && <span style={{ fontSize: 13, fontWeight: 600 }}>RM {parseFloat(lead.quotation_amount).toLocaleString()}</span>}
-                      {lead.assigned_profile?.name && <span style={{ fontSize: 11, color: '#94a3b8' }}>→ {lead.assigned_profile.name}</span>}
+                      {lead.assigned_profile?.full_name && <span style={{ fontSize: 11, color: '#94a3b8' }}>→ {lead.assigned_profile.full_name}</span>}
                     </div>
                   </div>
                   <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 8 }}>
-                    {new Date(lead.created_at).toLocaleDateString('ms-MY')} • {lead.creator?.name || 'Unknown'}
+                    {new Date(lead.created_at).toLocaleDateString('ms-MY')} • {lead.creator?.full_name || 'Unknown'}
                   </div>
                 </div>
               )
@@ -324,7 +313,7 @@ export default function AssignerDashboard() {
               {/* New / Existing Toggle */}
               <div>
                 <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 8 }}>Jenis Client</label>
-                <div style={{ display: 'flex', gap: 0, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0', width: 'fit-content' }}>
+                <div style={{ display: 'flex', borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0', width: 'fit-content' }}>
                   <button onClick={() => setClientType('new')}
                     style={{ padding: '10px 24px', border: 'none', background: clientType === 'new' ? '#6366f1' : 'white', color: clientType === 'new' ? 'white' : '#374151', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
                     🆕 New Client
@@ -391,7 +380,7 @@ export default function AssignerDashboard() {
                       <select value={form.referral_name} onChange={e => setForm({ ...form, referral_name: e.target.value })}
                         style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}>
                         <option value="">-- Pilih Staff --</option>
-                        {staffList.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                        {staffList.map(s => <option key={s.id} value={s.full_name}>{s.full_name}</option>)}
                       </select>
                     ) : (
                       <input value={form.referral_name} onChange={e => setForm({ ...form, referral_name: e.target.value })}
@@ -460,7 +449,11 @@ export default function AssignerDashboard() {
                 <select value={form.assigned_to} onChange={e => setForm({ ...form, assigned_to: e.target.value })}
                   style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}>
                   <option value="">-- Belum assign --</option>
-                  {hooList.map(h => <option key={h.id} value={h.id}>{h.name} ({h.role === 'hoo_mp' ? 'HOO-MP' : 'HOO'} {h.division})</option>)}
+                  {hooList.map(h => (
+                    <option key={h.id} value={h.id}>
+                      {h.full_name} ({h.role === 'hoo_mp' ? 'HOO-MP' : 'HOO'} {h.division})
+                    </option>
+                  ))}
                 </select>
               </div>
 
